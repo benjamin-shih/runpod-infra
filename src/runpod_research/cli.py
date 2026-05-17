@@ -9,12 +9,11 @@ from runpod_research import __version__
 from runpod_research import aggregate_cli, archive_cli, controller_cli, dashboard, launcher, reaper
 from runpod_research import run_card_cli, validate_cli
 
-CommandMain = Callable[[list[str] | None], int | None]
+CommandMain = Callable[[list[str] | None], int]
 
 
 def _call_main(module_main: CommandMain, argv: list[str]) -> int:
-    result = module_main(argv)
-    return int(result or 0)
+    return module_main(argv)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

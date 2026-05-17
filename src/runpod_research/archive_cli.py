@@ -27,10 +27,6 @@ DEFAULT_REMOTE_ROOT = "/workspace/archives/runpod-research"
 DEFAULT_SYNC_SPEC = data_path("archive-sync-pod.json")
 
 
-def load_runpod_module() -> Any:
-    return runpod
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--local-path", type=Path, action="append", required=True)
@@ -161,7 +157,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run and args.launch_sync_pod:
         raise SystemExit("dry-run cannot launch a sync pod; pass --sync-pod-id for a dry upload plan")
     remote_subdir = validate_remote_subdir(args.remote_subdir)
-    runpod = load_runpod_module()
     runpod.load_optional_dotenv(args.env_file)
     runpod.ensure_default_public_key()
     api_key = runpod.api_key_from_env()

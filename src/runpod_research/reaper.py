@@ -31,10 +31,6 @@ from runpod_research.lifecycle import (
 )
 
 
-def load_runpod_module() -> Any:
-    return runpod
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pod-id", required=True)
@@ -183,7 +179,6 @@ def force_cleanup_unreachable(
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    runpod = load_runpod_module()
     runpod.load_optional_dotenv(args.env_file)
     api_key = runpod.api_key_from_env()
     api_base = args.api_base or os.environ.get("RUNPOD_API_BASE", runpod.DEFAULT_API_BASE)

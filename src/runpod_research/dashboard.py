@@ -8,7 +8,6 @@ import html
 import json
 import os
 import sys
-import time
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -247,7 +246,6 @@ def main(argv: list[str] | None = None) -> int:
         print("stopping dashboard")
     finally:
         server.server_close()
-        time.sleep(0)
     return 0
 
 
