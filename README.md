@@ -13,14 +13,18 @@ This repository packages the controller pattern used in prior research work as a
 - Optionally promote local archives to a configured archive volume via an SSH/rsync sync pod.
 - Validate specs/queues offline and generate run-card READMEs for future recovery.
 
-## Install for development
+## Quickstart
+
+From a fresh machine:
 
 ```bash
+git clone https://github.com/benjamin-shih/runpod-infra.git
+cd runpod-infra
 uv sync --extra dev
 make validate
 ```
 
-## Minimal offline quickstart
+Then run the offline smoke path:
 
 ```bash
 uv run rpr validate spec --path examples/specs/stateless-smoke.json
@@ -28,10 +32,12 @@ uv run rpr launch render --spec examples/specs/stateless-smoke.json
 uv run rpr controller init-queue \
   --spec examples/specs/stateless-smoke.json \
   --queue build/runpod-queues/smoke/queue.json
-uv run rpr controller list --queue build/runpod-queues/smoke/queue.json
+uv run rpr controller tick \
+  --queue build/runpod-queues/smoke/queue.json \
+  --events-path build/runpod-queues/smoke/events.jsonl
 ```
 
-The render/init/list path is offline and does not require RunPod credentials. Live launch, cleanup, volume deletion, and archive upload paths require explicit confirmation flags.
+The render/init/tick path above is offline and does not require RunPod credentials. Live launch, cleanup, volume deletion, and archive upload paths require explicit confirmation flags. See `docs/quickstart.md` for collaborator setup, downstream-project installation, live-run commands, and an agent launch brief template.
 
 ## Worker artifact contract
 
@@ -61,6 +67,7 @@ Because this first controller retrieves artifacts over SSH from the pod, statele
 
 ## Docs
 
+- `docs/quickstart.md` — fresh-machine collaborator setup and first run path.
 - `docs/agent-usage.md` — required first-read for future agents.
 - `docs/contracts.md` — spec, queue, worker artifact, and archive contracts.
 - `docs/operator-guide.md` — common offline and live operation flow.

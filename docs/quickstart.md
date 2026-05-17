@@ -1,0 +1,170 @@
+# Quickstart for collaborators and agents
+
+Use this guide from a fresh machine when you want to run your own RunPod-backed research sweep with `runpod-research`.
+
+## Who can use this repo?
+
+A collaborator can use it from another machine if they have:
+
+- Git access to `https://github.com/benjamin-shih/runpod-infra.git`.
+- Python 3.11+ and `uv` installed.
+- A RunPod account/token available in their local shell for live API actions.
+- An SSH public key available as `RUNPOD_PUBLIC_KEY` or at `~/.ssh/id_ed25519.pub`.
+- A worker image/spec that writes the required lane artifacts described in `docs/contracts.md`.
+
+Agents can use it safely if they read `AGENTS.md` and `docs/agent-usage.md` first, validate specs offline, and ask before passing live confirmation flags.
+
+## 1. Install from a fresh clone
+
+```bash
+git clone https://github.com/benjamin-shih/runpod-infra.git
+cd runpod-infra
+uv sync --extra dev
+make validate
+```
+
+This is the recommended first setup because it gives collaborators the examples, tests, docs, and local validation target.
+
+## 2. Optional: use it from a downstream research repo
+
+From another project, either call the cloned checkout directly or add the Git package to that project:
+
+```bash
+uv add "runpod-research @ git+https://github.com/benjamin-shih/runpod-infra.git"
+uv run rpr --help
+```
+
+For one-off CLI use without adding a dependency:
+
+```bash
+uvx --from git+https://github.com/benjamin-shih/runpod-infra.git rpr --help
+```
+
+Keep project-specific sweep specs, worker images, run cards, and result archives in the downstream project, not in this infrastructure repo.
+
+## 3. Prepare local credentials without printing them
+
+For live API actions, the required variable is `RUNPOD_API_KEY`. The launcher also needs `RUNPOD_PUBLIC_KEY` for SSH access to workers, unless `~/.ssh/id_ed25519.pub` exists and can be loaded automatically. Optional archive sync pods that mount a network volume need `RUNPOD_NETWORK_VOLUME_ID` or an explicit spec value.
+
+Use either shell variables:
+
+```bash
+export RUNPOD_API_KEY=<set-locally>
+export RUNPOD_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)"
+# Optional, only for specs that mount an existing network volume:
+export RUNPOD_NETWORK_VOLUME_ID=<set-locally>
+```
+
+Or use the ignored local env-file name already covered by `.gitignore`:
+
+```bash
+cat > runpod-local-vars <<'EOF'
+RUNPOD_API_KEY=<set-locally>
+# Omit RUNPOD_PUBLIC_KEY to use ~/.ssh/id_ed25519.pub automatically.
+# RUNPOD_PUBLIC_KEY=<set-locally>
+# RUNPOD_NETWORK_VOLUME_ID=<optional-existing-network-volume>
+EOF
+```
+
+Do not commit credential files or paste values into chat. For grouped commands, place `--env-file` before the subcommand, for example `uv run rpr controller --env-file runpod-local-vars loop ...` or `uv run rpr launch --env-file runpod-local-vars list pods`.
+
+## 4. Validate and render offline
+
+Start with the included smoke spec:
+
+```bash
+uv run rpr validate spec --path examples/specs/stateless-smoke.json
+uv run rpr launch render --spec examples/specs/stateless-smoke.json
+```
+
+Rendering writes redacted payload/manifests under `build/runpod-launch-manifests/` and does not call RunPod.
+
+## 5. Create a queue
+
+```bash
+uv run rpr controller init-queue \
+  --spec examples/specs/stateless-smoke.json \
+  --queue build/runpod-queues/smoke/queue.json
+
+uv run rpr controller list \
+  --queue build/runpod-queues/smoke/queue.json
+```
+
+Use a unique queue path per run and one controller per queue. Do not have multiple agents or machines write the same queue JSON.
+
+## 6. Dry-run one controller tick
+
+```bash
+uv run rpr controller tick \
+  --queue build/runpod-queues/smoke/queue.json \
+  --events-path build/runpod-queues/smoke/events.jsonl
+```
+
+Without `--confirm-spend`, queued lanes are reported as would-launch and no pods are created.
+
+## 7. Launch a live run only after approval
+
+Before launch, record inventory and inspect the rendered payloads for GPU type, cloud type, image, disk/volume settings, artifact root, and expected spend. The CLI records `costPerHr` after launch, but before launch the operator must estimate cost from the rendered payload's GPU type/cloud type and current RunPod pricing or account UI.
+
+```bash
+uv run rpr launch --env-file runpod-local-vars list pods
+uv run rpr launch --env-file runpod-local-vars list network-volumes
+uv run rpr launch --env-file runpod-local-vars list templates
+```
+
+Then check the queue dry run from step 6 and record a budget line such as `max pods × expected $/hr × planned hours = max spend`. Ask for explicit approval of both the budget and the live loop command. After approval, run:
+
+```bash
+uv run rpr controller --env-file runpod-local-vars loop \
+  --queue build/runpod-queues/smoke/queue.json \
+  --events-path build/runpod-queues/smoke/events.jsonl \
+  --archive-root artifacts/runpod-lifecycle/sweeps \
+  --confirm-spend \
+  --confirm-cleanup \
+  --unreachable-grace-seconds 1800
+```
+
+This launches queued lanes, reaps terminal pods, writes local archives/checksums, and stops/deletes pods only when cleanup is confirmed. Add `--confirm-delete-temp-volumes` only for lane-owned temporary volumes that should be deleted.
+
+## 8. Monitor without wasting agent context
+
+Prefer local controller artifacts over live chat polling:
+
+```bash
+uv run rpr controller list --queue build/runpod-queues/smoke/queue.json
+uv run rpr dashboard --once --offline
+uv run rpr dashboard --env-file runpod-local-vars --once
+```
+
+Use the offline dashboard when you only need local manifests/status-cache. The API dashboard call requires local RunPod credentials.
+
+## 9. Archive promotion, if needed
+
+Promote completed local archives only after verifying they are worth keeping outside git:
+
+```bash
+uv run rpr archive --env-file runpod-local-vars \
+  --local-path artifacts/runpod-lifecycle/sweeps/stateless-smoke \
+  --remote-subdir my-project/stateless-smoke/$(date -u +%Y%m%dT%H%M%SZ) \
+  --sync-pod-id <existing-sync-pod-id> \
+  --confirm-sync
+```
+
+If the controller launches a sync pod for you, that is billable and requires `--confirm-spend`. The packaged default sync spec is generic; copy `examples/specs/archive-sync-pod.json` into your downstream project before customizing GPU, volume, or image policy.
+
+## 10. Worker contract checklist
+
+Before launching a project-specific worker, confirm it:
+
+- Uses `RPR_ARTIFACT_ROOT`, `RPR_SWEEP_NAME`, and `RPR_JOB_NAME` to choose a run root.
+- Writes `status.json`, `lane_config.json`, and `metrics_all.csv` before it is considered terminal.
+- Keeps the container alive after writing terminal artifacts until the SSH reaper copies them, unless the project has a separate persistent artifact backend.
+- Avoids printing secrets in logs or writing credential-bearing files to the artifact root.
+
+## Agent launch brief template
+
+Give a collaborator's agent a bounded brief like this:
+
+```text
+Read AGENTS.md, docs/agent-usage.md, docs/quickstart.md, and docs/contracts.md in the runpod-infra repo. Work from <project-root>. Do not run live RunPod actions until I approve the exact command with confirmation flags. Validate the spec offline, render payloads, initialize a unique queue, and report the dry-run tick result plus the proposed live loop command. Keep generated build/artifact outputs out of git and never print credential values.
+```

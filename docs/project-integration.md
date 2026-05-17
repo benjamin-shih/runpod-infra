@@ -9,8 +9,8 @@ configs/runpod/
   my-sweep.json
   archive-sync-pod.json
 experiments/<date>_<name>/README.md
-build/runpod-queues/        # ignored
-artifacts/runpod-lifecycle/ # ignored or externally synced
+build/                     # ignored controller queues, manifests, status cache, sync manifests
+artifacts/                 # ignored local archives or externally synced outputs
 ```
 
 ## Importing from Python
@@ -25,9 +25,13 @@ from runpod_research.schema import validate_spec_file
 Install this repo into the downstream UV project or run it from a shared environment, then invoke:
 
 ```bash
+uv add "runpod-research @ git+https://github.com/benjamin-shih/runpod-infra.git"
 uv run rpr validate spec --path configs/runpod/my-sweep.json
 uv run rpr controller init-queue --spec configs/runpod/my-sweep.json --queue build/runpod-queues/my-sweep/queue.json
+uv run rpr controller tick --queue build/runpod-queues/my-sweep/queue.json --events-path build/runpod-queues/my-sweep/events.jsonl
 ```
+
+Use `docs/quickstart.md` for the full collaborator setup and live-run flow. Downstream repos should ignore generated `build/` and `artifacts/` outputs broadly, not only queue files, because defaults also write launch manifests, monitor status cache, archive-sync manifests, and local artifact archives.
 
 ## What belongs downstream
 

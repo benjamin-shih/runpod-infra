@@ -1,13 +1,13 @@
 # AGENTS.md — runpod-research
 
-This repo contains reusable RunPod research lifecycle tooling. Before modifying code or operating live resources, read `docs/agent-usage.md`.
+This repo contains reusable RunPod research lifecycle tooling. Before modifying code or operating live resources, read `docs/agent-usage.md`. For collaborator setup or a first run from a new machine, also read `docs/quickstart.md` and `docs/contracts.md`.
 
 ## Core rules
 
 - Keep the package generic; project-specific sweep renderers, image policies, model names, and archive destinations belong in downstream repos or `examples/`.
 - Do not print, commit, or infer credential values. Use shell environment variables or ignored local credential files only.
 - Do not run billable or destructive RunPod actions without explicit user approval and the required confirmation flags.
-- Prefer offline validation (`make validate`, CLI help, spec/queue validation) before any live smoke.
+- Prefer offline validation (`make validate`, CLI help, spec/queue validation, render/init/dry-run tick) before any live smoke.
 - Keep generated queues, manifests, archives, logs, checkpoints, and bulky artifacts out of git.
 
 ## Validation
