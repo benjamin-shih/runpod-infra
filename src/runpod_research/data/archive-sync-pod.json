@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "name": "archive-sync-pod",
+  "remote_artifact_root": "/workspace/experiments/archive-sync",
+  "defaults": {
+    "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
+    "gpuTypeIds": ["NVIDIA A40"],
+    "cloudType": "COMMUNITY",
+    "containerDiskInGb": 20,
+    "networkVolumeId": "${RUNPOD_NETWORK_VOLUME_ID}",
+    "volumeMountPath": "/workspace",
+    "ports": "22/tcp",
+    "env": {
+      "RUNPOD_PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}"
+    },
+    "dockerStartCmd": [
+      "bash",
+      "-lc",
+      "set -euo pipefail; command -v rsync >/dev/null || (apt-get update && apt-get install -y --no-install-recommends rsync); sleep infinity"
+    ],
+    "storage_mode": "master-volume"
+  },
+  "jobs": [
+    {
+      "name": "sync"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local credential files
+runpod-local-vars
+runpod-local-vars.*
+
+# RunPod/generated artifacts
+build/
+artifacts/
+outputs/
+logs/
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.npy
+*.npz
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

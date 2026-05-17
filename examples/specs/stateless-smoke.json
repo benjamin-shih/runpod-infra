@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "name": "stateless-smoke",
+  "remote_artifact_root": "/workspace/experiments/runpod-research-smoke",
+  "defaults": {
+    "imageName": "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
+    "gpuTypeIds": ["NVIDIA A40"],
+    "cloudType": "COMMUNITY",
+    "containerDiskInGb": 20,
+    "volumeInGb": 0,
+    "ports": "22/tcp",
+    "env": {
+      "RUNPOD_PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}",
+      "RPR_PROJECT": "example"
+    },
+    "dockerStartCmd": [
+      "bash",
+      "-lc",
+      "set -euo pipefail; stamp=$(date -u +%Y%m%dT%H%M%SZ); root=${RPR_ARTIFACT_ROOT}/${RPR_SWEEP_NAME}/${RPR_JOB_NAME}/${stamp}; mkdir -p ${root}; printf '{\"status\":\"DONE\"}\n' > ${root}/status.json; printf '{\"job\":\"%s\"}\n' \"${RPR_JOB_NAME}\" > ${root}/lane_config.json; printf 'metric,value\nsmoke,1\n' > ${root}/metrics_all.csv; sleep infinity"
+    ],
+    "storage_mode": "stateless"
+  },
+  "jobs": [
+    {
+      "name": "lane-a",
+      "env": {
+        "RPR_LANE": "lane-a"
+      }
+    }
+  ]
+}

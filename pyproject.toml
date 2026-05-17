@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "runpod-research"
+version = "0.1.0"
+description = "Reusable RunPod lifecycle controller for research sweeps"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Benjamin Shih" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.11",
+]
+
+[project.scripts]
+rpr = "runpod_research.cli:main"
+rpr-launch = "runpod_research.launcher:main"
+rpr-controller = "runpod_research.controller_cli:main"
+rpr-reap = "runpod_research.reaper:main"
+rpr-archive = "runpod_research.archive_cli:main"
+rpr-aggregate = "runpod_research.aggregate_cli:main"
+rpr-validate = "runpod_research.validate_cli:main"
+rpr-run-card = "runpod_research.run_card_cli:main"
+rpr-dashboard = "runpod_research.dashboard:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/runpod_research"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
