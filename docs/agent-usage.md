@@ -21,11 +21,15 @@ This is the required first-read for future agents using or modifying `runpod-res
 
 ## Safety flags
 
-- `--confirm-spend` gates billable launches.
-- `--confirm-cleanup` gates controller-driven pod stop/delete actions.
-- `--confirm-delete-temp-volumes` gates temporary volume deletion and requires cleanup confirmation.
-- `--confirm-sync` gates archive upload; controller promotion also accepts `--confirm-archive-sync` as a more explicit alias.
-- `--confirm-delete-pod` and `--confirm-stop` gate one-shot reaper/archive pod cleanup.
+| Action | Command family | Required approval/flags |
+|---|---|---|
+| Launch new pods or start stopped pods | `rpr controller`, `rpr launch launch/start`, archive sync pod launch | `--confirm-spend`; controller launches also require budgeted `--max-concurrent` / `--max-launches-per-tick` when raising defaults |
+| Stop a pod directly | `rpr launch stop`, `rpr reap`, `rpr archive` cleanup | `--confirm-stop` |
+| Delete a pod directly | `rpr launch delete`, `rpr reap`, `rpr archive` cleanup | `--confirm-delete` or `--confirm-delete-pod`, depending on command |
+| Controller cleanup | `rpr controller tick/loop` | `--confirm-cleanup` |
+| Temporary volume deletion | controller/reaper | cleanup approval plus `--confirm-delete-temp-volumes` or `--confirm-delete-volume` |
+| Archive upload | `rpr archive`, controller promotion | `--confirm-sync`; controller promotion also accepts `--confirm-archive-sync` |
+| Existing queue overwrite | `rpr controller init-queue` | `--force`; active lanes additionally require `--force-active-overwrite` after reconciliation |
 
 ## Generic worker contract
 

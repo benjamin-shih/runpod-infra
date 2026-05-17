@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import json
+import os
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - fcntl is unavailable on Windows.
+    fcntl = None  # type: ignore[assignment]
 
 
 class LaneState(str, Enum):
     QUEUED = "QUEUED"
     LAUNCHING = "LAUNCHING"
+    LAUNCH_UNKNOWN = "LAUNCH-UNKNOWN"
     RUNNING = "RUNNING"
     SYNCING = "SYNCING"
     CLEANED = "CLEANED"
@@ -22,6 +30,7 @@ class LaneState(str, Enum):
 
 
 ACTIVE_STATES = frozenset({LaneState.LAUNCHING, LaneState.RUNNING, LaneState.SYNCING})
+BLOCKING_STATES = ACTIVE_STATES | frozenset({LaneState.LAUNCH_UNKNOWN})
 TERMINAL_STATES = frozenset(
     {
         LaneState.CLEANED,
@@ -110,16 +119,40 @@ class LaneRecord:
         return replace(self, **updates)
 
 
+class QueueLockError(RuntimeError):
+    """Raised when another controller already holds the queue lock."""
+
+
 class QueueStore:
     """Small atomic JSON queue store.
 
     The queue is intentionally a single JSON document instead of a database. A
     tick reads, mutates, and atomically replaces it, which is enough for one
-    controller process and keeps recovery inspectable.
+    controller process and keeps recovery inspectable. Mutating controller paths
+    take an advisory lock so two controllers do not write the same queue at the
+    same time.
     """
 
     def __init__(self, path: Path):
         self.path = path
+
+    @contextmanager
+    def exclusive_lock(self) -> Iterator[None]:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+        with lock_path.open("a+") as handle:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as exc:
+                    raise QueueLockError(
+                        f"queue is locked by another controller: {lock_path}"
+                    ) from exc
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def load(self) -> list[LaneRecord]:
         if not self.path.exists():
@@ -138,8 +171,12 @@ class QueueStore:
             "lanes": [lane.to_dict() for lane in lanes],
         }
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        with tmp.open("w") as handle:
+            handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
         tmp.replace(self.path)
+        _fsync_directory(self.path.parent)
 
     def replace_lane(self, lane: LaneRecord) -> None:
         lanes = self.load()
@@ -149,6 +186,17 @@ class QueueStore:
                 self.save(lanes)
                 return
         raise KeyError(f"lane {lane.lane_name!r} is not in queue {self.path}")
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def initialize_lanes(

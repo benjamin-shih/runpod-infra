@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -200,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
             run_ssh(
                 endpoint,
                 args.ssh_key,
-                f"mkdir -p {json.dumps(args.remote_root.rstrip('/') + '/' + remote_subdir)}",
+                f"mkdir -p {shlex.quote(args.remote_root.rstrip('/') + '/' + remote_subdir)}",
             )
         uploaded = []
         for local_path in args.local_path:

@@ -81,6 +81,13 @@ def test_invalid_spec_reports_missing_and_job_issues() -> None:
     assert "duplicate slugified job name: lane-a" in issues
 
 
+def test_spec_requires_slugifiable_sweep_name() -> None:
+    payload = valid_spec()
+    payload["name"] = "!!!"
+
+    assert "name cannot be slugified" in validate_spec_payload(payload)
+
+
 def test_spec_requires_absolute_artifact_root() -> None:
     missing = valid_spec()
     del missing["remote_artifact_root"]

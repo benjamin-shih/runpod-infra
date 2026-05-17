@@ -13,6 +13,7 @@ from runpod_research.lifecycle import (
     decision_for_status,
     endpoint_from_pod,
     load_launch_manifest_index,
+    read_remote_status,
     remote_run_root_discovery_script,
     require_launch_manifest_entry,
     verify_required_artifacts,
@@ -176,6 +177,28 @@ def test_archive_destination_uses_remote_launch_stamp(tmp_path: Path) -> None:
     )
 
     assert destination == tmp_path / "archive-root/sweep-cache/lane-cache/20260426T010203Z"
+
+
+def test_read_remote_status_shell_quotes_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    commands: list[str] = []
+
+    def fake_run_ssh(endpoint, ssh_key, command):
+        commands.append(command)
+
+        class Completed:
+            stdout = '{"status":"DONE"}'
+
+        return Completed()
+
+    monkeypatch.setattr("runpod_research.lifecycle.run_ssh", fake_run_ssh)
+
+    read_remote_status(
+        endpoint=endpoint_from_pod({"publicIp": "1.2.3.4", "portMappings": {"22": 2222}}),
+        ssh_key=Path("/tmp/key"),
+        remote_run_root="/workspace/run roots/$(bad)",
+    )
+
+    assert commands == ["cat '/workspace/run roots/$(bad)/status.json'"]
 
 
 def test_remote_run_root_discovery_requires_sweep_and_job() -> None:

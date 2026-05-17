@@ -1,6 +1,6 @@
 # Project integration
 
-Downstream research repos should treat `runpod-research` as infrastructure and keep project-specific choices in their own repo.
+Downstream research repos should treat `runpod-research` as infrastructure and keep project-specific choices in their own repo. See `docs/architecture.md` for the package boundaries and lifecycle model.
 
 ## Recommended layout in a downstream repo
 
@@ -28,10 +28,11 @@ Install this repo into the downstream UV project or run it from a shared environ
 uv add "runpod-research @ git+https://github.com/benjamin-shih/runpod-infra.git"
 uv run rpr validate spec --path configs/runpod/my-sweep.json
 uv run rpr controller init-queue --spec configs/runpod/my-sweep.json --queue build/runpod-queues/my-sweep/queue.json
+uv run rpr validate queue --path build/runpod-queues/my-sweep/queue.json
 uv run rpr controller tick --queue build/runpod-queues/my-sweep/queue.json --events-path build/runpod-queues/my-sweep/events.jsonl
 ```
 
-Use `docs/quickstart.md` for the full collaborator setup and live-run flow. Downstream repos should ignore generated `build/` and `artifacts/` outputs broadly, not only queue files, because defaults also write launch manifests, monitor status cache, archive-sync manifests, and local artifact archives.
+Use `docs/quickstart.md` for the full collaborator setup and live-run flow. For live loops, set `--max-concurrent` and `--max-launches-per-tick` to the approved budget; the controller defaults to one active lane and one new launch per tick. Downstream repos should ignore generated `build/` and `artifacts/` outputs broadly, not only queue files, because defaults also write launch manifests, monitor status cache, archive-sync manifests, and local artifact archives.
 
 ## What belongs downstream
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import pytest
 
@@ -142,6 +144,46 @@ def test_render_writes_redacted_payload_artifacts(
     [manifest_path] = list(out_dir.glob("*/manifest.json"))
     manifest = json.loads(manifest_path.read_text())
     assert manifest["jobs"][0]["payload_redacted"] is True
+
+
+def test_load_spec_enforces_full_schema_validation(tmp_path: Path) -> None:
+    spec = minimal_spec()
+    spec["jobs"] = [{"name": "Lane A"}, {"name": "Lane+A"}]
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(json.dumps(spec))
+
+    with pytest.raises(launcher.ConfigError, match="duplicate slugified job name"):
+        launcher.load_spec(spec_path)
+
+
+def test_api_request_redacts_http_error_bodies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+
+    def fake_urlopen(*args, **kwargs):
+        raise HTTPError(
+            "https://api.example/pods",
+            400,
+            "Bad Request",
+            hdrs={},
+            fp=io.BytesIO(b'{"RUNPOD_API_KEY":"direct-secret","message":"direct-secret"}'),
+        )
+
+    monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        launcher.api_request(
+            "POST",
+            "/pods",
+            api_key="direct-secret",
+            api_base="https://api.example",
+            payload={"name": "demo"},
+        )
+
+    message = str(exc_info.value)
+    assert "direct-secret" not in message
+    assert "<redacted>" in message
 
 
 def test_redact_for_manifest_removes_nested_secrets() -> None:

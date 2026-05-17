@@ -27,6 +27,8 @@ def test_build_loop_argv_preserves_queue_and_archive_flags() -> None:
         confirm_delete_temp_volumes=True,
         include_checkpoints=True,
         unreachable_grace_seconds=900.0,
+        max_concurrent=2,
+        max_launches_per_tick=1,
         promote_to_archive=True,
         archive_remote_subdir="runpod-smoke/demo",
     )
@@ -48,6 +50,12 @@ def test_build_loop_argv_preserves_queue_and_archive_flags() -> None:
     assert "--include-checkpoints" in argv
     assert ["--unreachable-grace-seconds", "900.0"] == argv[
         argv.index("--unreachable-grace-seconds") : argv.index("--unreachable-grace-seconds") + 2
+    ]
+    assert ["--max-concurrent", "2"] == argv[
+        argv.index("--max-concurrent") : argv.index("--max-concurrent") + 2
+    ]
+    assert ["--max-launches-per-tick", "1"] == argv[
+        argv.index("--max-launches-per-tick") : argv.index("--max-launches-per-tick") + 2
     ]
     assert "--promote-to-archive" in argv
     assert ["--archive-remote-subdir", "runpod-smoke/demo"] == argv[

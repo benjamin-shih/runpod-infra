@@ -1,6 +1,6 @@
 # Quickstart for collaborators and agents
 
-Use this guide from a fresh machine when you want to run your own RunPod-backed research sweep with `runpod-research`.
+Use this guide from a fresh machine when you want to run your own RunPod-backed research sweep with `runpod-research`. The source repository is named `runpod-infra`, while the Python package is `runpod-research` and imports as `runpod_research`.
 
 ## Who can use this repo?
 
@@ -86,11 +86,12 @@ uv run rpr controller init-queue \
   --spec examples/specs/stateless-smoke.json \
   --queue build/runpod-queues/smoke/queue.json
 
+uv run rpr validate queue --path build/runpod-queues/smoke/queue.json
 uv run rpr controller list \
   --queue build/runpod-queues/smoke/queue.json
 ```
 
-Use a unique queue path per run and one controller per queue. Do not have multiple agents or machines write the same queue JSON.
+Use a unique queue path per run and one controller per queue. Do not have multiple agents or machines write the same queue JSON. `init-queue` refuses to overwrite an existing queue unless `--force` is supplied; queues with active lanes require `--force-active-overwrite` only after manual reconciliation.
 
 ## 6. Dry-run one controller tick
 
@@ -104,7 +105,7 @@ Without `--confirm-spend`, queued lanes are reported as would-launch and no pods
 
 ## 7. Launch a live run only after approval
 
-Before launch, record inventory and inspect the rendered payloads for GPU type, cloud type, image, disk/volume settings, artifact root, and expected spend. The CLI records `costPerHr` after launch, but before launch the operator must estimate cost from the rendered payload's GPU type/cloud type and current RunPod pricing or account UI.
+Before launch, record inventory and inspect the rendered payloads for GPU type, cloud type, image, disk/volume settings, artifact root, and expected spend. The CLI records `costPerHr` after launch, but before launch the operator must estimate cost from the rendered payload's GPU type/cloud type and current RunPod pricing or account UI. Confirmed controller launches default to one active lane and one new pod per tick; raise `--max-concurrent` and `--max-launches-per-tick` only after the budget line covers that concurrency.
 
 ```bash
 uv run rpr launch --env-file runpod-local-vars list pods
@@ -119,12 +120,14 @@ uv run rpr controller --env-file runpod-local-vars loop \
   --queue build/runpod-queues/smoke/queue.json \
   --events-path build/runpod-queues/smoke/events.jsonl \
   --archive-root artifacts/runpod-lifecycle/sweeps \
+  --max-concurrent 2 \
+  --max-launches-per-tick 1 \
   --confirm-spend \
   --confirm-cleanup \
   --unreachable-grace-seconds 1800
 ```
 
-This launches queued lanes, reaps terminal pods, writes local archives/checksums, and stops/deletes pods only when cleanup is confirmed. Add `--confirm-delete-temp-volumes` only for lane-owned temporary volumes that should be deleted.
+This launches queued lanes within the explicit caps, reaps terminal pods, writes local archives/checksums, and stops/deletes pods only when cleanup is confirmed. Add `--confirm-delete-temp-volumes` only for lane-owned temporary volumes that should be deleted.
 
 ## 8. Monitor without wasting agent context
 
@@ -166,5 +169,5 @@ Before launching a project-specific worker, confirm it:
 Give a collaborator's agent a bounded brief like this:
 
 ```text
-Read AGENTS.md, docs/agent-usage.md, docs/quickstart.md, and docs/contracts.md in the runpod-infra repo. Work from <project-root>. Do not run live RunPod actions until I approve the exact command with confirmation flags. Validate the spec offline, render payloads, initialize a unique queue, and report the dry-run tick result plus the proposed live loop command. Keep generated build/artifact outputs out of git and never print credential values.
+Read AGENTS.md, docs/agent-usage.md, docs/quickstart.md, and docs/contracts.md in the runpod-infra repo. Work from <project-root>. Do not run live RunPod actions until I approve the exact command with confirmation flags. Validate the spec and queue offline, render payloads, initialize a unique queue, and report the dry-run tick result plus the proposed live loop command including launch caps. Keep generated build/artifact outputs out of git and never print credential values.
 ```

@@ -21,6 +21,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .schema import validate_spec_payload
+
 
 DEFAULT_API_BASE = "https://rest.runpod.io/v1"
 ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -51,6 +53,15 @@ def print_redacted_json(payload: Any) -> None:
     print(json.dumps(redact_for_manifest(payload), indent=2, sort_keys=True))
 
 
+def redact_text(value: str, *, extra_secret_values: tuple[str, ...] = ()) -> str:
+    """Redact known secret values from free-form text."""
+
+    redacted = value
+    for secret in _combined_secret_values(extra_secret_values):
+        redacted = redacted.replace(secret, "<redacted>")
+    return redacted
+
+
 def redact_for_manifest(value: Any, key: str | None = None) -> Any:
     """Redact secrets before writing local launch/debug manifests.
 
@@ -60,7 +71,7 @@ def redact_for_manifest(value: Any, key: str | None = None) -> Any:
     manifest writer sees any key context.
     """
 
-    secret_values = _secret_env_values()
+    secret_values = _combined_secret_values(())
     return _redact_for_manifest(value, key=key, secret_values=secret_values)
 
 
@@ -100,6 +111,20 @@ def _secret_env_values() -> tuple[str, ...]:
         if env_value and len(env_value) >= 4 and SECRET_KEY_PATTERN.search(env_key)
     }
     return tuple(sorted(values, key=len, reverse=True))
+
+
+def _combined_secret_values(extra_secret_values: tuple[str, ...]) -> tuple[str, ...]:
+    values = set(_secret_env_values())
+    values.update(secret for secret in extra_secret_values if secret and len(secret) >= 4)
+    return tuple(sorted(values, key=len, reverse=True))
+
+
+def _redact_error_body(body: str, *, extra_secret_values: tuple[str, ...] = ()) -> str:
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return redact_text(body, extra_secret_values=extra_secret_values)
+    return json.dumps(_redact_for_manifest(parsed, key=None, secret_values=_combined_secret_values(extra_secret_values)), sort_keys=True)
 
 
 def load_dotenv(path: Path) -> list[str]:
@@ -206,12 +231,10 @@ def strip_lifecycle_keys(payload: dict[str, Any]) -> dict[str, Any]:
 
 def load_spec(path: Path) -> dict[str, Any]:
     spec = read_json(path)
-    if spec.get("schema_version") != 1:
-        raise ConfigError("expected schema_version=1")
-    if not isinstance(spec.get("jobs"), list) or not spec["jobs"]:
-        raise ConfigError("spec must contain a non-empty jobs list")
-    if not isinstance(spec.get("defaults"), dict):
-        raise ConfigError("spec must contain a defaults object")
+    issues = validate_spec_payload(spec)
+    if issues:
+        joined = "; ".join(issues)
+        raise ConfigError(f"{path} failed spec validation: {joined}")
     return spec
 
 
@@ -284,9 +307,13 @@ def api_request(
             raw = response.read().decode("utf-8")
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"RunPod API {method} {url} failed: {exc.code} {body}") from exc
+        raise RuntimeError(
+            f"RunPod API {method} {url} failed: {exc.code} "
+            f"{_redact_error_body(body, extra_secret_values=(api_key,))}"
+        ) from exc
     except URLError as exc:
-        raise RuntimeError(f"RunPod API {method} {url} failed: {exc.reason}") from exc
+        reason = redact_text(str(exc.reason), extra_secret_values=(api_key,))
+        raise RuntimeError(f"RunPod API {method} {url} failed: {reason}") from exc
     return json.loads(raw) if raw else {}
 
 

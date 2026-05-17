@@ -389,7 +389,7 @@ def read_remote_status(
     ssh_key: Path,
     remote_run_root: str,
 ) -> dict[str, Any]:
-    result = run_ssh(endpoint, ssh_key, f"cat {json.dumps(remote_run_root.rstrip('/') + '/status.json')}")
+    result = run_ssh(endpoint, ssh_key, f"cat {shlex.quote(remote_run_root.rstrip('/') + '/status.json')}")
     status = json.loads(result.stdout)
     if not isinstance(status, dict):
         raise LifecycleError("remote status.json did not contain an object")
@@ -462,7 +462,7 @@ def rsync_pull_artifacts(
         "--exclude=*",
         "-e",
         ssh_command,
-        f"{endpoint.target}:{remote_run_root.rstrip('/')}/",
+        f"{endpoint.target}:{shlex.quote(remote_run_root.rstrip('/') + '/')}",
         f"{destination}/",
     ]
     if dry_run:

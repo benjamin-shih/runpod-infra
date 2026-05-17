@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .lifecycle import append_event
-from .queue import LaneRecord, LaneState, QueueStore, queued_lanes, running_lanes, utc_now
+from .queue import BLOCKING_STATES, LaneRecord, LaneState, QueueStore, queued_lanes, running_lanes, utc_now
 
 
 class CapacityUnavailable(RuntimeError):
@@ -50,7 +50,8 @@ class LaneReaper(Protocol):
 class TickSummary:
     launched: int = 0
     would_launch: int = 0
-    recovered_launches: int = 0
+    launch_unknown: int = 0
+    launch_skipped: int = 0
     reaped: int = 0
     still_running: int = 0
     failed_launches: int = 0
@@ -60,7 +61,8 @@ class TickSummary:
         return {
             "launched": self.launched,
             "would_launch": self.would_launch,
-            "recovered_launches": self.recovered_launches,
+            "launch_unknown": self.launch_unknown,
+            "launch_skipped": self.launch_skipped,
             "reaped": self.reaped,
             "still_running": self.still_running,
             "failed_launches": self.failed_launches,
@@ -76,51 +78,91 @@ def tick_queue(
     confirm_spend: bool,
     confirm_cleanup: bool,
     events_path: Path,
+    max_concurrent: int | None = None,
+    max_launches_per_tick: int | None = None,
 ) -> TickSummary:
     """Run one idempotent controller tick.
 
-    A tick first inspects running lanes, then launches all queued lanes if
-    billable launch is explicitly confirmed.
+    A tick first inspects running lanes, then launches queued lanes if billable
+    launch is explicitly confirmed and the configured launch/concurrency caps
+    allow it. Unknown mid-launch crashes are not retried automatically because a
+    successful POST may have created a spending pod before the pod id was
+    persisted.
     """
 
+    if max_concurrent is not None and max_concurrent < 1:
+        raise ValueError("max_concurrent must be at least 1")
+    if max_launches_per_tick is not None and max_launches_per_tick < 1:
+        raise ValueError("max_launches_per_tick must be at least 1")
+
+    with store.exclusive_lock():
+        return _tick_queue_locked(
+            store=store,
+            launcher=launcher,
+            reaper=reaper,
+            confirm_spend=confirm_spend,
+            confirm_cleanup=confirm_cleanup,
+            events_path=events_path,
+            max_concurrent=max_concurrent,
+            max_launches_per_tick=max_launches_per_tick,
+        )
+
+
+def _tick_queue_locked(
+    *,
+    store: QueueStore,
+    launcher: LaneLauncher,
+    reaper: LaneReaper,
+    confirm_spend: bool,
+    confirm_cleanup: bool,
+    events_path: Path,
+    max_concurrent: int | None,
+    max_launches_per_tick: int | None,
+) -> TickSummary:
     lanes = store.load()
     launched = 0
     would_launch = 0
-    recovered_launches = 0
+    launch_unknown = 0
+    launch_skipped = 0
     reaped = 0
     still_running = 0
     failed_launches = 0
     errors: list[str] = []
-    append_event(events_path, "tick.start", lane_count=len(lanes), confirm_spend=confirm_spend)
+    append_event(
+        events_path,
+        "tick.start",
+        lane_count=len(lanes),
+        confirm_spend=confirm_spend,
+        max_concurrent=max_concurrent,
+        max_launches_per_tick=max_launches_per_tick,
+    )
 
     for lane in lanes:
         if lane.state != LaneState.LAUNCHING:
             continue
         if lane.pod_id and lane.last_error is None:
             continue
-        recovered_launches += 1
-        reason = lane.last_error or "controller recovered stale LAUNCHING lane before pod_id was recorded"
+        launch_unknown += 1
+        reason = lane.last_error or (
+            "controller recovered a LAUNCHING lane before pod_id was recorded; "
+            "manual RunPod inventory reconciliation is required before retrying"
+        )
         replacement = lane.with_updates(
-            state=LaneState.QUEUED,
-            retry_count=lane.retry_count + 1,
-            pod_id=None,
-            pod_name=None,
-            volume_id=None,
-            data_center_id=None,
-            manifest_path=None,
-            cost_per_hr=0.0,
-            launched_at_utc="",
+            state=LaneState.LAUNCH_UNKNOWN,
             last_error=reason,
         )
         _replace_in_memory(lanes, replacement)
         append_event(
             events_path,
-            "tick.recovered_launching",
+            "tick.launch_unknown",
             lane_name=lane.lane_name,
             retry_count=replacement.retry_count,
             reason=reason,
         )
-    if recovered_launches:
+    if launch_unknown:
+        errors.append(
+            "one or more lanes are LAUNCH-UNKNOWN; reconcile RunPod inventory before launching more"
+        )
         store.save(lanes)
 
     for lane in running_lanes(lanes):
@@ -155,10 +197,43 @@ def tick_queue(
         _replace_in_memory(lanes, replacement)
         store.save(lanes)
 
+    unknown_lanes = [lane.lane_name for lane in lanes if lane.state == LaneState.LAUNCH_UNKNOWN]
+    active_count = sum(1 for lane in lanes if lane.state in BLOCKING_STATES)
     for lane in queued_lanes(lanes):
         if not confirm_spend:
             would_launch += 1
             append_event(events_path, "tick.would_launch", lane_name=lane.lane_name)
+            continue
+        if unknown_lanes:
+            launch_skipped += 1
+            append_event(
+                events_path,
+                "tick.launch_skipped",
+                lane_name=lane.lane_name,
+                reason="launch_unknown requires reconciliation",
+                launch_unknown_lanes=unknown_lanes,
+            )
+            continue
+        if max_concurrent is not None and active_count >= max_concurrent:
+            launch_skipped += 1
+            append_event(
+                events_path,
+                "tick.launch_skipped",
+                lane_name=lane.lane_name,
+                reason="max_concurrent reached",
+                max_concurrent=max_concurrent,
+                active_count=active_count,
+            )
+            continue
+        if max_launches_per_tick is not None and launched >= max_launches_per_tick:
+            launch_skipped += 1
+            append_event(
+                events_path,
+                "tick.launch_skipped",
+                lane_name=lane.lane_name,
+                reason="max_launches_per_tick reached",
+                max_launches_per_tick=max_launches_per_tick,
+            )
             continue
         launching = lane.with_updates(state=LaneState.LAUNCHING, last_error=None)
         _replace_in_memory(lanes, launching)
@@ -181,6 +256,7 @@ def tick_queue(
             )
         else:
             launched += 1
+            active_count += 1
             replacement = launching.with_updates(
                 state=LaneState.RUNNING,
                 pod_id=result.pod_id,
@@ -205,7 +281,8 @@ def tick_queue(
     summary = TickSummary(
         launched=launched,
         would_launch=would_launch,
-        recovered_launches=recovered_launches,
+        launch_unknown=launch_unknown,
+        launch_skipped=launch_skipped,
         reaped=reaped,
         still_running=still_running,
         failed_launches=failed_launches,

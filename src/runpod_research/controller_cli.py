@@ -31,7 +31,7 @@ from runpod_research.daemon import (  # noqa: E402
     stop_daemon_metadata,
 )
 from runpod_research.lifecycle import append_event  # noqa: E402
-from runpod_research.queue import QueueStore, initialize_lanes, queue_is_terminal  # noqa: E402
+from runpod_research.queue import BLOCKING_STATES, QueueStore, initialize_lanes, queue_is_terminal  # noqa: E402
 
 
 DEFAULT_QUEUE = Path("build/runpod-queues/default/queue.json")
@@ -39,6 +39,8 @@ DEFAULT_EVENTS = Path("build/runpod-lifecycle/events.jsonl")
 DEFAULT_MANIFEST_ROOT = Path("build/runpod-launch-manifests")
 DEFAULT_ARCHIVE_ROOT = Path("artifacts/runpod-lifecycle/sweeps")
 DEFAULT_ARCHIVE_SYNC_SPEC = data_path("archive-sync-pod.json")
+DEFAULT_MAX_CONCURRENT = 1
+DEFAULT_MAX_LAUNCHES_PER_TICK = 1
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -137,7 +139,7 @@ def _looks_like_capacity_error(message: str) -> bool:
     return any(token in lowered for token in ("capacity", "unavailable", "no instances", "out of stock"))
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", type=Path, default=None)
     parser.add_argument("--api-base", default=runpod.DEFAULT_API_BASE)
@@ -148,6 +150,12 @@ def parse_args() -> argparse.Namespace:
     init_parser.add_argument("--queue", type=Path, default=DEFAULT_QUEUE)
     init_parser.add_argument("--start-index", type=int, default=0)
     init_parser.add_argument("--count", type=int)
+    init_parser.add_argument("--force", action="store_true", help="Overwrite an existing non-active queue.")
+    init_parser.add_argument(
+        "--force-active-overwrite",
+        action="store_true",
+        help="Also allow overwriting an existing queue with active lanes.",
+    )
     init_parser.set_defaults(func=init_queue)
 
     tick_parser = subparsers.add_parser("tick", help="run one queue controller tick")
@@ -161,6 +169,7 @@ def parse_args() -> argparse.Namespace:
     tick_parser.add_argument("--unreachable-grace-seconds", type=float)
     tick_parser.add_argument("--aggregate-on-complete", action="store_true")
     tick_parser.add_argument("--archive-root", type=Path, default=DEFAULT_ARCHIVE_ROOT)
+    add_launch_cap_args(tick_parser)
     add_promotion_args(tick_parser)
     tick_parser.set_defaults(func=tick)
 
@@ -177,6 +186,7 @@ def parse_args() -> argparse.Namespace:
     loop_parser.add_argument("--include-checkpoints", action="store_true")
     loop_parser.add_argument("--unreachable-grace-seconds", type=float)
     loop_parser.add_argument("--no-aggregate-on-complete", action="store_true")
+    add_launch_cap_args(loop_parser)
     add_promotion_args(loop_parser)
     loop_parser.set_defaults(func=loop)
 
@@ -193,6 +203,7 @@ def parse_args() -> argparse.Namespace:
     daemon_start_parser.add_argument("--confirm-delete-temp-volumes", action="store_true")
     daemon_start_parser.add_argument("--include-checkpoints", action="store_true")
     daemon_start_parser.add_argument("--unreachable-grace-seconds", type=float)
+    add_launch_cap_args(daemon_start_parser)
     add_promotion_args(daemon_start_parser)
     daemon_start_parser.set_defaults(func=daemon_start)
 
@@ -208,7 +219,22 @@ def parse_args() -> argparse.Namespace:
     list_parser = subparsers.add_parser("list", help="print queue state")
     list_parser.add_argument("--queue", type=Path, default=DEFAULT_QUEUE)
     list_parser.set_defaults(func=list_queue)
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def add_launch_cap_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=DEFAULT_MAX_CONCURRENT,
+        help="Maximum active or unreconciled lanes allowed before launching more.",
+    )
+    parser.add_argument(
+        "--max-launches-per-tick",
+        type=int,
+        default=DEFAULT_MAX_LAUNCHES_PER_TICK,
+        help="Maximum new pods a confirmed tick may launch.",
+    )
 
 
 def add_promotion_args(parser: argparse.ArgumentParser) -> None:
@@ -238,10 +264,25 @@ def init_queue(args: argparse.Namespace) -> int:
     lanes = initialize_lanes(
         spec_path=args.spec,
         sweep_name=runpod.slugify(str(spec["name"])),
-        lane_names=[runpod.slugify(str(job.get("name", f"job-{index}"))) for index, job in enumerate(jobs)],
+        lane_names=[runpod.slugify(str(job["name"])) for job in jobs],
         start_index=args.start_index,
     )
-    QueueStore(args.queue).save(lanes)
+    store = QueueStore(args.queue)
+    with store.exclusive_lock():
+        if args.queue.exists() and not args.force:
+            raise runpod.ConfigError(
+                f"queue already exists; choose a new path or pass --force: {args.queue}"
+            )
+        if args.queue.exists() and args.force and not args.force_active_overwrite:
+            existing = store.load()
+            active = [lane.lane_name for lane in existing if lane.state in BLOCKING_STATES]
+            if active:
+                names = ", ".join(active)
+                raise runpod.ConfigError(
+                    "refusing to overwrite queue with active lanes "
+                    f"({names}); pass --force-active-overwrite only after reconciliation"
+                )
+        store.save(lanes)
     print(args.queue)
     return 0
 
@@ -264,6 +305,8 @@ def tick(args: argparse.Namespace) -> int:
         confirm_delete_temp_volumes=args.confirm_delete_temp_volumes,
         include_checkpoints=args.include_checkpoints,
         unreachable_grace_seconds=args.unreachable_grace_seconds,
+        max_concurrent=args.max_concurrent,
+        max_launches_per_tick=args.max_launches_per_tick,
     )
     aggregate_result = maybe_aggregate_complete_queue(
         store=store,
@@ -313,6 +356,8 @@ def loop(args: argparse.Namespace) -> int:
             confirm_delete_temp_volumes=args.confirm_delete_temp_volumes,
             include_checkpoints=args.include_checkpoints,
             unreachable_grace_seconds=args.unreachable_grace_seconds,
+            max_concurrent=args.max_concurrent,
+            max_launches_per_tick=args.max_launches_per_tick,
         )
         aggregate_result = maybe_aggregate_complete_queue(
             store=store,
@@ -345,6 +390,9 @@ def loop(args: argparse.Namespace) -> int:
             ),
             flush=True,
         )
+        if summary.launch_unknown:
+            append_event(args.events_path, "loop.blocked_launch_unknown", tick_index=tick_index)
+            return 1
         if aggregate_result is not None or queue_is_terminal(store.load()):
             append_event(args.events_path, "loop.complete", tick_index=tick_index)
             return 0 if not summary.errors else 1
@@ -367,6 +415,8 @@ def run_tick(
     confirm_delete_temp_volumes: bool,
     include_checkpoints: bool,
     unreachable_grace_seconds: float | None,
+    max_concurrent: int | None,
+    max_launches_per_tick: int | None,
 ):
     return tick_queue(
         store=store,
@@ -383,12 +433,21 @@ def run_tick(
         confirm_spend=confirm_spend,
         confirm_cleanup=confirm_cleanup,
         events_path=events_path,
+        max_concurrent=max_concurrent,
+        max_launches_per_tick=max_launches_per_tick,
     )
 
 
 def validate_cleanup_flags(args: argparse.Namespace) -> None:
     if getattr(args, "confirm_delete_temp_volumes", False) and not getattr(args, "confirm_cleanup", False):
         raise runpod.ConfigError("--confirm-delete-temp-volumes requires --confirm-cleanup")
+    for attr, flag in (
+        ("max_concurrent", "--max-concurrent"),
+        ("max_launches_per_tick", "--max-launches-per-tick"),
+    ):
+        value = getattr(args, attr, None)
+        if value is not None and value < 1:
+            raise runpod.ConfigError(f"{flag} must be at least 1")
 
 
 def maybe_aggregate_complete_queue(
@@ -513,6 +572,8 @@ def daemon_start(args: argparse.Namespace) -> int:
         confirm_delete_temp_volumes=args.confirm_delete_temp_volumes,
         include_checkpoints=args.include_checkpoints,
         unreachable_grace_seconds=args.unreachable_grace_seconds,
+        max_concurrent=args.max_concurrent,
+        max_launches_per_tick=args.max_launches_per_tick,
         promote_to_archive=args.promote_to_archive,
         archive_remote_subdir=args.archive_remote_subdir,
     )
@@ -593,15 +654,7 @@ def daemon_stop(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    if argv is not None:
-        original_argv = sys.argv
-        sys.argv = [original_argv[0], *argv]
-        try:
-            args = parse_args()
-        finally:
-            sys.argv = original_argv
-    else:
-        args = parse_args()
+    args = parse_args(argv)
     return args.func(args)
 
 

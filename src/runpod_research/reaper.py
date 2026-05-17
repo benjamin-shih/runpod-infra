@@ -181,8 +181,8 @@ def force_cleanup_unreachable(
     return 0
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     runpod = load_runpod_module()
     runpod.load_optional_dotenv(args.env_file)
     api_key = runpod.api_key_from_env()

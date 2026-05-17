@@ -41,8 +41,14 @@ def validate_spec_payload(payload: Any) -> list[Issue]:
         issues.append("schema_version must be 1")
 
     name = payload.get("name")
-    if "name" in payload and not _is_non_empty_string(name):
-        issues.append("name is required")
+    if "name" in payload:
+        if not _is_non_empty_string(name):
+            issues.append("name is required")
+        else:
+            try:
+                slugify(name)
+            except SchemaValidationError:
+                issues.append("name cannot be slugified")
 
     root = payload.get("remote_artifact_root")
     if "remote_artifact_root" in payload and (

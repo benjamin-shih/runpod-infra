@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from collections.abc import Callable
 
 from runpod_research import __version__
@@ -13,16 +12,8 @@ from runpod_research import run_card_cli, validate_cli
 CommandMain = Callable[[list[str] | None], int | None]
 
 
-def _call_main(module_main: Callable[..., int | None], argv: list[str]) -> int:
-    try:
-        result = module_main(argv)
-    except TypeError:
-        original = sys.argv
-        sys.argv = [original[0], *argv]
-        try:
-            result = module_main()
-        finally:
-            sys.argv = original
+def _call_main(module_main: CommandMain, argv: list[str]) -> int:
+    result = module_main(argv)
     return int(result or 0)
 
 
@@ -56,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parse_args(["--help"])
         return 0
-    dispatch: dict[str, Callable[..., int | None]] = {
+    dispatch: dict[str, CommandMain] = {
         "launch": launcher.main,
         "controller": controller_cli.main,
         "reap": reaper.main,

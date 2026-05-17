@@ -13,7 +13,7 @@ from runpod_research.lifecycle import PodEndpoint
 
 
 def test_validate_remote_subdir_rejects_unsafe_paths() -> None:
-    for value in ("", "/absolute", "../escape", "safe/../../escape"):
+    for value in ("", "/absolute", "../escape", "safe/../../escape", "bad space", "bad/$HOME", "bad/`date`"):
         with pytest.raises(ValueError):
             validate_remote_subdir(value)
 
@@ -37,6 +37,24 @@ def test_build_archive_manifest_preserves_relative_paths(tmp_path: Path) -> None
     assert "queue.json" in paths
     assert manifest["remote_subdir"] == "runpod-smoke/20260426T053824Z"
     assert all(entry["sha256"] for entry in manifest["files"])
+
+
+def test_rsync_upload_command_quotes_unsafe_remote_root(tmp_path: Path) -> None:
+    source = tmp_path / "archive"
+    source.mkdir()
+    endpoint = PodEndpoint(host="1.2.3.4", port=2222)
+
+    command = build_rsync_upload_command(
+        endpoint=endpoint,
+        ssh_key=Path("/tmp/key"),
+        local_path=source,
+        remote_root="/workspace/archive root/$unsafe",
+        remote_subdir="runpod-smoke/20260426T053824Z",
+    )
+
+    assert command.argv[-1].startswith("root@1.2.3.4:")
+    assert command.argv[-1].endswith("'")
+    assert "$unsafe" in command.argv[-1]
 
 
 def test_rsync_upload_command_copies_path_under_remote_subdir(tmp_path: Path) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -11,6 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from .lifecycle import PodEndpoint, utc_now, write_json
+
+
+SAFE_REMOTE_PART_PATTERN = re.compile(r"^[A-Za-z0-9._=+-]+$")
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,8 @@ def validate_remote_subdir(value: str) -> str:
         raise ValueError("remote subdir must not be empty")
     parts = Path(normalized).parts
     if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"unsafe remote subdir: {value!r}")
+    if any(not SAFE_REMOTE_PART_PATTERN.fullmatch(part) for part in parts):
         raise ValueError(f"unsafe remote subdir: {value!r}")
     return normalized
 
@@ -99,7 +105,7 @@ def build_rsync_upload_command(
             "-e",
             ssh_command,
             str(local_path),
-            f"{endpoint.target}:{remote_destination}",
+            f"{endpoint.target}:{shlex.quote(remote_destination)}",
         )
     )
 

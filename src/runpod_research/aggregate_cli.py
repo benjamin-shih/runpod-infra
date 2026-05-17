@@ -7,11 +7,10 @@ import argparse
 import json
 from pathlib import Path
 
-
 from runpod_research.aggregate import aggregate_sweep_results
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--archive-root",
@@ -22,11 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sweep", help="Optional sweep name to aggregate.")
     parser.add_argument("--output-csv", type=Path)
     parser.add_argument("--manifest-json", type=Path)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     result = aggregate_sweep_results(
         archive_root=args.archive_root,
         sweep_name=args.sweep,

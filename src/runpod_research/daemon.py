@@ -52,6 +52,8 @@ def build_loop_argv(
     confirm_delete_temp_volumes: bool,
     include_checkpoints: bool,
     unreachable_grace_seconds: float | None,
+    max_concurrent: int | None,
+    max_launches_per_tick: int | None,
     promote_to_archive: bool,
     archive_remote_subdir: str | None,
     env_file: Path | None = None,
@@ -88,6 +90,10 @@ def build_loop_argv(
         argv.append("--include-checkpoints")
     if unreachable_grace_seconds is not None:
         argv.extend(["--unreachable-grace-seconds", str(unreachable_grace_seconds)])
+    if max_concurrent is not None:
+        argv.extend(["--max-concurrent", str(max_concurrent)])
+    if max_launches_per_tick is not None:
+        argv.extend(["--max-launches-per-tick", str(max_launches_per_tick)])
     if promote_to_archive:
         argv.append("--promote-to-archive")
         if not archive_remote_subdir:

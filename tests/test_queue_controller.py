@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +14,7 @@ from runpod_research.controller import (
     ScriptReaper,
     tick_queue,
 )
-from runpod_research.controller_cli import maybe_promote_complete_queue
+from runpod_research.controller_cli import init_queue, maybe_promote_complete_queue
 from runpod_research.queue import LaneRecord, LaneState, QueueStore, queue_is_terminal
 
 
@@ -76,6 +78,119 @@ def test_queue_round_trip(tmp_path: Path) -> None:
     assert lane.job_index == 3
 
 
+def test_init_queue_refuses_existing_queue_without_force(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "Smoke Sweep",
+                "remote_artifact_root": "/workspace/experiments/smoke",
+                "defaults": {"imageName": "runpod/pytorch:2.4.0"},
+                "jobs": [{"name": "Lane A"}],
+            }
+        )
+    )
+    queue_path = tmp_path / "queue.json"
+    make_store(tmp_path, [LaneRecord("existing", "sweep", "configs/runpod/example.json", 0)])
+
+    args = SimpleNamespace(
+        env_file=None,
+        spec=spec_path,
+        queue=queue_path,
+        start_index=0,
+        count=None,
+        force=False,
+        force_active_overwrite=False,
+    )
+
+    with pytest.raises(launcher.ConfigError, match="queue already exists"):
+        init_queue(args)
+
+
+def test_init_queue_requires_extra_confirmation_for_launch_unknown_overwrite(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "Smoke Sweep",
+                "remote_artifact_root": "/workspace/experiments/smoke",
+                "defaults": {"imageName": "runpod/pytorch:2.4.0"},
+                "jobs": [{"name": "Lane A"}],
+            }
+        )
+    )
+    queue_path = tmp_path / "queue.json"
+    store = QueueStore(queue_path)
+    store.save(
+        [
+            LaneRecord(
+                "unknown",
+                "sweep",
+                "configs/runpod/example.json",
+                0,
+                state=LaneState.LAUNCH_UNKNOWN,
+            )
+        ]
+    )
+
+    args = SimpleNamespace(
+        env_file=None,
+        spec=spec_path,
+        queue=queue_path,
+        start_index=0,
+        count=None,
+        force=True,
+        force_active_overwrite=False,
+    )
+
+    with pytest.raises(launcher.ConfigError, match="active lanes"):
+        init_queue(args)
+
+
+def test_init_queue_requires_extra_confirmation_for_active_overwrite(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "Smoke Sweep",
+                "remote_artifact_root": "/workspace/experiments/smoke",
+                "defaults": {"imageName": "runpod/pytorch:2.4.0"},
+                "jobs": [{"name": "Lane A"}],
+            }
+        )
+    )
+    queue_path = tmp_path / "queue.json"
+    store = QueueStore(queue_path)
+    store.save(
+        [
+            LaneRecord(
+                "active",
+                "sweep",
+                "configs/runpod/example.json",
+                0,
+                state=LaneState.RUNNING,
+                pod_id="pod-a",
+            )
+        ]
+    )
+
+    args = SimpleNamespace(
+        env_file=None,
+        spec=spec_path,
+        queue=queue_path,
+        start_index=0,
+        count=None,
+        force=True,
+        force_active_overwrite=False,
+    )
+
+    with pytest.raises(launcher.ConfigError, match="active lanes"):
+        init_queue(args)
+
+
 def test_tick_dry_run_does_not_launch_queued_lanes(tmp_path: Path) -> None:
     store = make_store(
         tmp_path,
@@ -132,6 +247,68 @@ def test_tick_launches_all_queued_lanes_when_confirmed(tmp_path: Path) -> None:
     assert all(lane.launched_at_utc for lane in lanes)
 
 
+def test_tick_respects_launch_caps(tmp_path: Path) -> None:
+    store = make_store(
+        tmp_path,
+        [
+            LaneRecord("lane-a", "sweep", "configs/runpod/example.json", 0),
+            LaneRecord("lane-b", "sweep", "configs/runpod/example.json", 1),
+        ],
+    )
+
+    summary = tick_queue(
+        store=store,
+        launcher=FakeLauncher(
+            LaunchResult(pod_id="pod-a", pod_name="pod-a", cost_per_hr=1.0),
+            LaunchResult(pod_id="pod-b", pod_name="pod-b", cost_per_hr=1.0),
+        ),
+        reaper=FakeReaper({}),
+        confirm_spend=True,
+        confirm_cleanup=False,
+        events_path=tmp_path / "events.jsonl",
+        max_concurrent=1,
+        max_launches_per_tick=1,
+    )
+
+    lanes = store.load()
+    assert summary.launched == 1
+    assert summary.launch_skipped == 1
+    assert [lane.state for lane in lanes] == [LaneState.RUNNING, LaneState.QUEUED]
+
+
+def test_tick_respects_existing_active_lanes_when_capped(tmp_path: Path) -> None:
+    store = make_store(
+        tmp_path,
+        [
+            LaneRecord(
+                "lane-a",
+                "sweep",
+                "configs/runpod/example.json",
+                0,
+                state=LaneState.RUNNING,
+                pod_id="pod-a",
+            ),
+            LaneRecord("lane-b", "sweep", "configs/runpod/example.json", 1),
+        ],
+    )
+
+    summary = tick_queue(
+        store=store,
+        launcher=FakeLauncher(LaunchResult(pod_id="pod-b", pod_name="pod-b")),
+        reaper=FakeReaper({"lane-a": ReapResult(lane_status="RUNNING", final_state=LaneState.RUNNING)}),
+        confirm_spend=True,
+        confirm_cleanup=False,
+        events_path=tmp_path / "events.jsonl",
+        max_concurrent=1,
+        max_launches_per_tick=1,
+    )
+
+    lanes = store.load()
+    assert summary.launched == 0
+    assert summary.launch_skipped == 1
+    assert lanes[1].state == LaneState.QUEUED
+
+
 def test_capacity_error_returns_lane_to_queue(tmp_path: Path) -> None:
     store = make_store(
         tmp_path,
@@ -154,7 +331,7 @@ def test_capacity_error_returns_lane_to_queue(tmp_path: Path) -> None:
     assert "no instances" in str(lane.last_error)
 
 
-def test_stale_launching_lane_without_pod_id_is_requeued_and_retried(tmp_path: Path) -> None:
+def test_stale_launching_lane_without_pod_id_is_marked_unknown(tmp_path: Path) -> None:
     store = make_store(
         tmp_path,
         [
@@ -180,12 +357,47 @@ def test_stale_launching_lane_without_pod_id_is_requeued_and_retried(tmp_path: P
     )
 
     [lane] = store.load()
-    assert summary.recovered_launches == 1
-    assert summary.launched == 1
-    assert launcher.launched == ["lane-a"]
-    assert lane.state == LaneState.RUNNING
-    assert lane.retry_count == 3
-    assert lane.pod_id == "pod-a"
+    assert summary.launch_unknown == 1
+    assert summary.launched == 0
+    assert launcher.launched == []
+    assert lane.state == LaneState.LAUNCH_UNKNOWN
+    assert lane.retry_count == 2
+    assert "manual RunPod inventory reconciliation" in str(lane.last_error)
+
+
+def test_launch_unknown_blocks_new_launches_until_reconciled(tmp_path: Path) -> None:
+    store = make_store(
+        tmp_path,
+        [
+            LaneRecord(
+                "lane-a",
+                "sweep",
+                "configs/runpod/example.json",
+                0,
+                state=LaneState.LAUNCHING,
+            ),
+            LaneRecord("lane-b", "sweep", "configs/runpod/example.json", 1),
+        ],
+    )
+    launcher = FakeLauncher(LaunchResult(pod_id="pod-b", pod_name="pod-b"))
+
+    summary = tick_queue(
+        store=store,
+        launcher=launcher,
+        reaper=FakeReaper({}),
+        confirm_spend=True,
+        confirm_cleanup=False,
+        events_path=tmp_path / "events.jsonl",
+        max_concurrent=1,
+        max_launches_per_tick=1,
+    )
+
+    lanes = store.load()
+    assert summary.launch_unknown == 1
+    assert summary.launch_skipped == 1
+    assert summary.errors
+    assert launcher.launched == []
+    assert [lane.state for lane in lanes] == [LaneState.LAUNCH_UNKNOWN, LaneState.QUEUED]
 
 
 def test_other_launch_error_marks_failed_launching(tmp_path: Path) -> None:

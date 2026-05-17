@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import sys
@@ -123,10 +124,10 @@ def build_status(
     terminal_statuses = {"DONE", "FAILED", "ERROR", "CANCELED", "CANCELLED"}
     cached_terminal = 0
     for record in status_records:
-        status = record.get("lane_status") or _nested_get(record, "status", "status") or record.get("status")
-        if str(status).upper() in terminal_statuses:
+        lane_status = record.get("lane_status") or _nested_get(record, "status", "status") or record.get("status")
+        if str(lane_status).upper() in terminal_statuses:
             cached_terminal += 1
-    return {
+    status = {
         "generated_at_utc": utc_now(),
         "manifest_root": str(manifest_root),
         "status_cache": str(status_cache),
@@ -141,10 +142,20 @@ def build_status(
         "status_cache_records": status_records[-100:],
         "api_pods": pods,
     }
+    return runpod.redact_for_manifest(status)
 
 
 def render_html(status: dict[str, Any]) -> str:
-    body = json.dumps(status, indent=2, sort_keys=True)
+    redacted_status = runpod.redact_for_manifest(status)
+    body = html.escape(json.dumps(redacted_status, indent=2, sort_keys=True))
+    generated_at = html.escape(str(redacted_status["generated_at_utc"]))
+    cards = "".join(
+        '<div class="card"><strong>{}</strong><br>{}</div>'.format(
+            html.escape(str(key)),
+            html.escape(str(value)),
+        )
+        for key, value in redacted_status["counts"].items()
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -159,9 +170,9 @@ def render_html(status: dict[str, Any]) -> str:
 </head>
 <body>
   <h1>runpod-research dashboard</h1>
-  <p>Generated at {status['generated_at_utc']}.</p>
+  <p>Generated at {generated_at}.</p>
   <div class="counts">
-    {''.join(f'<div class="card"><strong>{key}</strong><br>{value}</div>' for key, value in status['counts'].items())}
+    {cards}
   </div>
   <h2>Raw status JSON</h2>
   <pre>{body}</pre>
