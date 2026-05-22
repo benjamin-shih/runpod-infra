@@ -129,6 +129,10 @@ uv run rpr-archive --env-file runpod-local-vars \
    - Set missing values in shell or `runpod-local-vars`; do not paste values into chat.
 3. SSH/reap failures:
    - Confirm the spec exposes `22/tcp`, `RUNPOD_PUBLIC_KEY` was injected, and the worker is still alive.
+   - For stateless pods launched from an image, a missing public IP, empty port
+     mappings, or `pod not ready` status can be transient while RunPod downloads
+     and initializes the image. Treat it as a startup-grace condition until logs
+     or repeated readiness checks show the pod is no longer progressing.
    - If the pod is unrecoverable, use `--force-cleanup-unreachable` only after explicit approval and a recorded cleanup plan.
 4. Missing artifacts:
    - For `DONE`, ensure `status.json`, `lane_config.json`, and `metrics_all.csv` exist in the discovered run root.
