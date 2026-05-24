@@ -33,7 +33,13 @@ A terminal lane run root should contain:
 
 The default reaper copies artifacts over SSH from a still-running pod. Stateless workers should keep the container alive after writing these files until reaping completes, unless the project implements its own persistent artifact backend.
 
-Optional generic paths copied by default include logs, metrics, outputs, evals, training summaries, code snapshots, and small checkpoint metadata. Large checkpoint payloads are copied only with `--include-checkpoints`.
+Optional generic paths copied by default include logs, metrics, outputs, evals,
+training summaries, code snapshots, scientific NumPy array outputs under
+`outputs/`, and small checkpoint metadata. Large checkpoint payloads are copied
+only with `--include-checkpoints`. For LoRA/PEFT training lanes, use
+`--include-checkpoints` when adapter tensors are required; the checkpoint policy
+includes scheduled checkpoint directories and final adapter directories under
+both `training/` and `outputs/training/`.
 
 ## Queue contract
 

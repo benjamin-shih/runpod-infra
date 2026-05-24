@@ -111,6 +111,8 @@ def test_copy_verify_checksums_and_status_cache(tmp_path: Path) -> None:
     (remote / "training/run/run.log").write_text("training log\n")
     (remote / "training/run/checkpoints").mkdir(parents=True)
     (remote / "training/run/checkpoints/final.pt").write_text("large checkpoint")
+    (remote / "outputs/cache").mkdir(parents=True)
+    (remote / "outputs/cache/activations.npz").write_text("activation cache")
 
     local = tmp_path / "archive"
     copied = copy_artifacts_from_local(remote, local)
@@ -121,6 +123,7 @@ def test_copy_verify_checksums_and_status_cache(tmp_path: Path) -> None:
     assert "metrics_all.csv" in checksums
     assert "training_summary.json" in checksums
     assert "code_snapshot.bundle" in checksums
+    assert "outputs/cache/activations.npz" in checksums
     assert not (local / "training/run/checkpoints/final.pt").exists()
 
     entry = require_launch_manifest_entry_from_payload(tmp_path)
@@ -134,6 +137,32 @@ def test_copy_verify_checksums_and_status_cache(tmp_path: Path) -> None:
     cached = json.loads(cache_path.read_text())
     assert cached["pod_id"] == "pod-cache"
     assert cached["local_archive"] == str(local)
+
+
+def test_copy_artifacts_includes_lora_tensors_with_checkpoint_flag(tmp_path: Path) -> None:
+    remote = tmp_path / "remote" / "20260426T010203Z"
+    write_json(remote / "status.json", {"status": "DONE"})
+    write_json(remote / "lane_config.json", {"model_name": "llama"})
+    (remote / "metrics_all.csv").write_text("metric,value\nok,1\n")
+    (remote / "training/checkpoints/checkpoint-1").mkdir(parents=True)
+    (remote / "training/checkpoints/checkpoint-1/adapter_model.safetensors").write_text(
+        "checkpoint tensor"
+    )
+    (remote / "training/final_adapter").mkdir(parents=True)
+    (remote / "training/final_adapter/adapter_model.safetensors").write_text(
+        "final tensor"
+    )
+    (remote / "outputs/training/final_adapter").mkdir(parents=True)
+    (remote / "outputs/training/final_adapter/adapter_model.safetensors").write_text(
+        "copied final tensor"
+    )
+
+    local = tmp_path / "archive"
+    copy_artifacts_from_local(remote, local, include_checkpoints=True)
+
+    assert (local / "training/checkpoints/checkpoint-1/adapter_model.safetensors").exists()
+    assert (local / "training/final_adapter/adapter_model.safetensors").exists()
+    assert (local / "outputs/training/final_adapter/adapter_model.safetensors").exists()
 
 
 def test_verify_required_artifacts_reports_missing(tmp_path: Path) -> None:

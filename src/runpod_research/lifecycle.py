@@ -41,6 +41,8 @@ DEFAULT_OPTIONAL_PATTERNS = (
     "outputs/**/*.json",
     "outputs/**/*.jsonl",
     "outputs/**/*.md",
+    "outputs/**/*.npy",
+    "outputs/**/*.npz",
     "outputs/**/*.txt",
     "training/**/*.log",
     "training/**/*.csv",
@@ -54,7 +56,13 @@ DEFAULT_CHECKPOINT_PATTERNS = (
     "checkpoints/**/*.pt",
     "checkpoints/**/*.pth",
     "checkpoints/**/*.safetensors",
+    "training/checkpoints/**/*",
     "training/**/checkpoints/**/*",
+    "training/final_adapter/*",
+    "training/final_adapter/**/*",
+    "outputs/training/checkpoints/**/*",
+    "outputs/training/final_adapter/*",
+    "outputs/training/final_adapter/**/*",
 )
 
 
