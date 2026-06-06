@@ -17,3 +17,9 @@ This repo contains reusable RunPod research lifecycle tooling. Before modifying 
 ## Validation
 
 Run `make validate` before committing changes. If it cannot run, record the exact blocker and the narrow checks that did run.
+
+## GPT-Pro Review Passes
+
+For non-trivial, risky, or review-heavy work, use GPT-Pro/GPT-0Pro review passes as an external critique loop when the ChatGPT Pro sidecar is available: ask for critique, apply fixes locally, and rerun only when the follow-up materially improves quality.
+
+Guardrails: keep GPT-Pro advisory only; do not send secrets, credentials, private account pages, or unapproved proprietary/raw data; do not ask it to operate financial/trading sites or place trades. The local agent remains accountable for implementation, verification, commits, pushes, and final synthesis.
