@@ -9,14 +9,16 @@
     "containerDiskInGb": 20,
     "networkVolumeId": "${RUNPOD_NETWORK_VOLUME_ID}",
     "volumeMountPath": "/workspace",
-    "ports": "22/tcp",
+    "ports": ["22/tcp"],
     "env": {
-      "RUNPOD_PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}"
+      "RUNPOD_PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}",
+      "SSH_PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}",
+      "PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}"
     },
     "dockerStartCmd": [
       "bash",
       "-lc",
-      "set -euo pipefail; command -v rsync >/dev/null || (apt-get update && apt-get install -y --no-install-recommends rsync); sleep infinity"
+      "set -euo pipefail; command -v sshd >/dev/null || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server); command -v rsync >/dev/null || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rsync); key=${RUNPOD_PUBLIC_KEY:-${SSH_PUBLIC_KEY:-${PUBLIC_KEY:-}}}; test -n \"$key\"; mkdir -p /run/sshd /root/.ssh; chmod 700 /root/.ssh; printf '%s\n' \"$key\" > /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys; /usr/sbin/sshd; sleep infinity"
     ],
     "storage_mode": "master-volume"
   },

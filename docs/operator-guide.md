@@ -128,7 +128,7 @@ uv run rpr-archive --env-file runpod-local-vars \
    - Open the rendered `manifest.json` and ensure `unresolved_env` is empty before live launch.
    - Set missing values in shell or `runpod-local-vars`; do not paste values into chat.
 3. SSH/reap failures:
-   - Confirm the spec exposes `22/tcp`, `RUNPOD_PUBLIC_KEY` was injected, and the worker is still alive.
+   - Confirm the rendered spec exposes `["22/tcp"]`, starts an SSH daemon for custom commands, injects `RUNPOD_PUBLIC_KEY` through `SSH_PUBLIC_KEY`/`PUBLIC_KEY`, and the worker is still alive.
    - For stateless pods launched from an image, a missing public IP, empty port
      mappings, or `pod not ready` status can be transient while RunPod downloads
      and initializes the image. Treat it as a startup-grace condition until logs

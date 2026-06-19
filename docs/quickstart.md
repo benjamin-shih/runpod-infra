@@ -44,7 +44,7 @@ Keep project-specific sweep specs, worker images, run cards, and result archives
 
 ## 3. Prepare local credentials without printing them
 
-For live API actions, the required variable is `RUNPOD_API_KEY`. The launcher also needs `RUNPOD_PUBLIC_KEY` for SSH access to workers, unless `~/.ssh/id_ed25519.pub` exists and can be loaded automatically. Optional archive sync pods that mount a network volume need `RUNPOD_NETWORK_VOLUME_ID` or an explicit spec value.
+For live API actions, the required variable is `RUNPOD_API_KEY`. The launcher also needs `RUNPOD_PUBLIC_KEY` for SSH access to workers, unless `~/.ssh/id_ed25519.pub` exists and can be loaded automatically. Specs that need full SSH should pass that value through as `SSH_PUBLIC_KEY` and `PUBLIC_KEY` in the rendered pod environment, because Runpod's current SSH guidance uses `SSH_PUBLIC_KEY` for pod-specific overrides and common custom start commands write `$PUBLIC_KEY` into `authorized_keys`. Optional archive sync pods that mount a network volume need `RUNPOD_NETWORK_VOLUME_ID` or an explicit spec value.
 
 Use either shell variables:
 
@@ -161,7 +161,7 @@ Before launching a project-specific worker, confirm it:
 
 - Uses `RPR_ARTIFACT_ROOT`, `RPR_SWEEP_NAME`, and `RPR_JOB_NAME` to choose a run root.
 - Writes `status.json`, `lane_config.json`, and `metrics_all.csv` before it is considered terminal.
-- Keeps the container alive after writing terminal artifacts until the SSH reaper copies them, unless the project has a separate persistent artifact backend.
+- Starts an SSH daemon when using a custom container start command, exposes `["22/tcp"]`, and keeps the container alive after writing terminal artifacts until the SSH reaper copies them, unless the project has a separate persistent artifact backend.
 - Avoids printing secrets in logs or writing credential-bearing files to the artifact root.
 
 ## Agent launch brief template

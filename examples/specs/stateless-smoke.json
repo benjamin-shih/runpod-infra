@@ -8,15 +8,17 @@
     "cloudType": "COMMUNITY",
     "containerDiskInGb": 20,
     "volumeInGb": 0,
-    "ports": "22/tcp",
+    "ports": ["22/tcp"],
     "env": {
       "RUNPOD_PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}",
+      "SSH_PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}",
+      "PUBLIC_KEY": "${RUNPOD_PUBLIC_KEY}",
       "RPR_PROJECT": "example"
     },
     "dockerStartCmd": [
       "bash",
       "-lc",
-      "set -euo pipefail; stamp=$(date -u +%Y%m%dT%H%M%SZ); root=${RPR_ARTIFACT_ROOT}/${RPR_SWEEP_NAME}/${RPR_JOB_NAME}/${stamp}; mkdir -p ${root}; printf '{\"status\":\"DONE\"}\n' > ${root}/status.json; printf '{\"job\":\"%s\"}\n' \"${RPR_JOB_NAME}\" > ${root}/lane_config.json; printf 'metric,value\nsmoke,1\n' > ${root}/metrics_all.csv; sleep infinity"
+      "set -euo pipefail; command -v sshd >/dev/null || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server); key=${RUNPOD_PUBLIC_KEY:-${SSH_PUBLIC_KEY:-${PUBLIC_KEY:-}}}; test -n \"$key\"; mkdir -p /run/sshd /root/.ssh; chmod 700 /root/.ssh; printf '%s\n' \"$key\" > /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys; /usr/sbin/sshd; stamp=$(date -u +%Y%m%dT%H%M%SZ); root=${RPR_ARTIFACT_ROOT}/${RPR_SWEEP_NAME}/${RPR_JOB_NAME}/${stamp}; mkdir -p ${root}; printf '{\"status\":\"DONE\"}\n' > ${root}/status.json; printf '{\"job\":\"%s\"}\n' \"${RPR_JOB_NAME}\" > ${root}/lane_config.json; printf 'metric,value\nsmoke,1\n' > ${root}/metrics_all.csv; sleep infinity"
     ],
     "storage_mode": "stateless"
   },

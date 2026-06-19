@@ -61,8 +61,10 @@ def validate_spec_payload(payload: Any) -> list[Issue]:
         issues.append("defaults must be an object")
 
     _validate_storage_mode(payload, "storage_mode", issues)
+    _validate_ports(payload, "ports", issues)
     if isinstance(defaults, dict):
         _validate_storage_mode(defaults, "defaults.storage_mode", issues)
+        _validate_ports(defaults, "defaults.ports", issues)
 
     jobs = payload.get("jobs")
     if "jobs" not in payload:
@@ -82,6 +84,7 @@ def validate_spec_payload(payload: Any) -> list[Issue]:
             continue
 
         _validate_storage_mode(job, f"{path}.storage_mode", issues)
+        _validate_ports(job, f"{path}.ports", issues)
         job_name = job.get("name")
         if not _is_non_empty_string(job_name):
             issues.append(f"{path}.name is required")
@@ -168,6 +171,14 @@ def _validate_storage_mode(payload: dict[str, Any], path: str, issues: list[Issu
     value = payload["storage_mode"]
     if value not in VALID_STORAGE_MODES:
         issues.append(f"unsupported storage_mode at {path}: {value}")
+
+
+def _validate_ports(payload: dict[str, Any], path: str, issues: list[Issue]) -> None:
+    if "ports" not in payload:
+        return
+    value = payload["ports"]
+    if not isinstance(value, list) or not all(_is_non_empty_string(item) for item in value):
+        issues.append(f"{path} must be a list of non-empty strings, for example ['22/tcp']")
 
 
 def _is_non_empty_string(value: Any) -> bool:

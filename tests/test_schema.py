@@ -101,6 +101,15 @@ def test_spec_requires_absolute_artifact_root() -> None:
     )
 
 
+def test_spec_ports_must_match_runpod_api_shape() -> None:
+    payload = valid_spec()
+    payload["defaults"]["ports"] = "22/tcp"
+
+    assert "defaults.ports must be a list of non-empty strings, for example ['22/tcp']" in (
+        validate_spec_payload(payload)
+    )
+
+
 def test_spec_jobs_must_be_a_list() -> None:
     payload = valid_spec()
     payload["jobs"] = {"name": "not-a-list"}
