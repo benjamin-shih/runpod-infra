@@ -7,6 +7,7 @@ import pytest
 
 from runpod_research.lifecycle import (
     ArtifactVerificationError,
+    PodEndpoint,
     UnknownPodError,
     archive_destination,
     copy_artifacts_from_local,
@@ -16,6 +17,7 @@ from runpod_research.lifecycle import (
     read_remote_status,
     remote_run_root_discovery_script,
     require_launch_manifest_entry,
+    pull_artifacts,
     verify_required_artifacts,
     write_checksums,
     write_status_cache,
@@ -228,6 +230,40 @@ def test_read_remote_status_shell_quotes_path(monkeypatch: pytest.MonkeyPatch) -
     )
 
     assert commands == ["cat '/workspace/run roots/$(bad)/status.json'"]
+
+
+def test_pull_artifacts_falls_back_when_local_rsync_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+
+    def fake_rsync_pull_artifacts(**kwargs):
+        calls.append("rsync")
+        raise FileNotFoundError(2, "No such file or directory", "rsync")
+
+    def fake_ssh_tar_pull_artifacts(**kwargs):
+        calls.append("tar")
+
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Completed()
+
+    monkeypatch.setattr("runpod_research.lifecycle.rsync_pull_artifacts", fake_rsync_pull_artifacts)
+    monkeypatch.setattr(
+        "runpod_research.lifecycle.ssh_tar_pull_artifacts", fake_ssh_tar_pull_artifacts
+    )
+
+    pull_artifacts(
+        endpoint=PodEndpoint(host="1.2.3.4", port=2222, user="root"),
+        ssh_key=Path("/tmp/key"),
+        remote_run_root="/workspace/run",
+        destination=tmp_path,
+    )
+
+    assert calls == ["rsync", "tar"]
 
 
 def test_remote_run_root_discovery_requires_sweep_and_job() -> None:

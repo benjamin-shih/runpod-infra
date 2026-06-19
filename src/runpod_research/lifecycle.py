@@ -591,6 +591,9 @@ def pull_artifacts(
             include_checkpoints=include_checkpoints,
             dry_run=dry_run,
         )
+    except FileNotFoundError as exc:
+        if exc.filename != "rsync":
+            raise
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr if isinstance(exc.stderr, str) else ""
         if exc.returncode != 127 and "rsync" not in stderr.lower():
