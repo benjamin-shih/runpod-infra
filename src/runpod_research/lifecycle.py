@@ -625,7 +625,7 @@ def file_sha256(path: Path) -> str:
 def write_checksums(root: Path, *, filename: str = "CHECKSUMS.sha256") -> dict[str, str]:
     checksums: dict[str, str] = {}
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        if path.name == filename:
+        if path.name in {filename, "archive-receipt.json"}:
             continue
         relative = path.relative_to(root).as_posix()
         checksums[relative] = file_sha256(path)

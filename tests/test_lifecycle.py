@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -139,6 +140,42 @@ def test_copy_verify_checksums_and_status_cache(tmp_path: Path) -> None:
     cached = json.loads(cache_path.read_text())
     assert cached["pod_id"] == "pod-cache"
     assert cached["local_archive"] == str(local)
+
+
+def test_checksums_exclude_mutable_archive_receipt(tmp_path: Path) -> None:
+    archive = tmp_path / "archive"
+    write_json(archive / "status.json", {"status": "FAILED"})
+    write_json(archive / "lane_config.json", {"job_name": "test"})
+    (archive / "metrics_all.csv").write_text("stage,verdict\nworker,STOP\n")
+    (archive / "logs/bootstrap").mkdir(parents=True)
+    (archive / "logs/bootstrap/bootstrap.log").write_text("bootstrap\n")
+    write_json(archive / "metrics/bootstrap/transport.json", {"status": "PASS"})
+    write_json(archive / "archive-receipt.json", {"lane_status": "RUNNING"})
+
+    checksums = write_checksums(archive)
+
+    assert "CHECKSUMS.sha256" not in checksums
+    assert "archive-receipt.json" not in checksums
+    expected_artifacts = {
+        "status.json",
+        "lane_config.json",
+        "metrics_all.csv",
+        "logs/bootstrap/bootstrap.log",
+        "metrics/bootstrap/transport.json",
+    }
+    assert set(checksums) == expected_artifacts
+
+    terminal_receipt = {"lane_status": "FAILED", "checksums": checksums}
+    write_json(archive / "archive-receipt.json", terminal_receipt)
+    completed = subprocess.run(
+        ["shasum", "-a", "256", "-c", "CHECKSUMS.sha256"],
+        cwd=archive,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert set(terminal_receipt["checksums"]) == expected_artifacts
 
 
 def test_copy_artifacts_includes_lora_tensors_with_checkpoint_flag(tmp_path: Path) -> None:
