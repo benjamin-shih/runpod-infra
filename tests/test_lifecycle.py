@@ -108,7 +108,9 @@ def test_copy_verify_checksums_and_status_cache(tmp_path: Path) -> None:
     write_json(remote / "status.json", {"status": "DONE", "completed_l1_count": 1})
     write_json(remote / "lane_config.json", {"model_name": "gpt2-small"})
     write_json(remote / "training_summary.json", {"final_loss": 1.0})
+    write_json(remote / "eligibility.json", {"authorization_pass": False})
     (remote / "code_snapshot.bundle").write_text("bundle")
+    (remote / "run.log").write_text("worker log\n")
     (remote / "metrics_all.csv").write_text("run_id,lambda_1\nr,1e-4\n")
     (remote / "training/run/run.log").parent.mkdir(parents=True)
     (remote / "training/run/run.log").write_text("training log\n")
@@ -116,6 +118,8 @@ def test_copy_verify_checksums_and_status_cache(tmp_path: Path) -> None:
     (remote / "training/run/checkpoints/final.pt").write_text("large checkpoint")
     (remote / "outputs/cache").mkdir(parents=True)
     (remote / "outputs/cache/activations.npz").write_text("activation cache")
+    write_json(remote / "outputs/reserve_decisions.json", {"substituted": False})
+    (remote / "outputs/behavior_rows.jsonl.gz").write_text("compressed rows")
 
     local = tmp_path / "archive"
     copied = copy_artifacts_from_local(remote, local)
@@ -125,7 +129,11 @@ def test_copy_verify_checksums_and_status_cache(tmp_path: Path) -> None:
     assert local / "status.json" in copied
     assert "metrics_all.csv" in checksums
     assert "training_summary.json" in checksums
+    assert "eligibility.json" in checksums
     assert "code_snapshot.bundle" in checksums
+    assert "run.log" in checksums
+    assert "outputs/reserve_decisions.json" in checksums
+    assert "outputs/behavior_rows.jsonl.gz" in checksums
     assert "outputs/cache/activations.npz" in checksums
     assert not (local / "training/run/checkpoints/final.pt").exists()
 

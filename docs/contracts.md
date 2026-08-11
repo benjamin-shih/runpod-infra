@@ -37,9 +37,9 @@ The local `CHECKSUMS.sha256` manifest covers stable archived artifacts. It
 intentionally excludes itself and the mutable `archive-receipt.json`; the final
 receipt embeds the checksum map for the other artifacts after terminal cleanup.
 
-Optional generic paths copied by default include logs, metrics, outputs, evals,
-training summaries, code snapshots, scientific NumPy array outputs under
-`outputs/`, and small checkpoint metadata. Large checkpoint payloads are copied
+Optional generic paths copied by default include root and nested logs, metrics, outputs, evals,
+training summaries, code snapshots, top-level eligibility decisions, compressed JSONL behavior
+rows, scientific NumPy array outputs under `outputs/`, and small checkpoint metadata. Large checkpoint payloads are copied
 only with `--include-checkpoints`. For LoRA/PEFT training lanes, use
 `--include-checkpoints` when adapter tensors are required; the checkpoint policy
 includes scheduled checkpoint directories and final adapter directories under

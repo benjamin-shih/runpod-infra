@@ -22,6 +22,7 @@ from typing import Any
 
 DEFAULT_REQUIRED_ARTIFACTS = ("status.json", "lane_config.json", "metrics_all.csv")
 DEFAULT_OPTIONAL_PATTERNS = (
+    "*.log",
     "bootstrap.log",
     "bootstrap_timing.json",
     "run_config.json",
@@ -32,6 +33,7 @@ DEFAULT_OPTIONAL_PATTERNS = (
     "python_version.txt",
     "pip_freeze.txt",
     "code_snapshot.bundle",
+    "eligibility.json",
     "logs/**/*.log",
     "logs/**/*.txt",
     "metrics/**/*.csv",
@@ -44,6 +46,15 @@ DEFAULT_OPTIONAL_PATTERNS = (
     "outputs/**/*.npy",
     "outputs/**/*.npz",
     "outputs/**/*.txt",
+    "outputs/*.csv",
+    "outputs/*.json",
+    "outputs/*.jsonl",
+    "outputs/*.jsonl.gz",
+    "outputs/*.log",
+    "outputs/*.md",
+    "outputs/*.npy",
+    "outputs/*.npz",
+    "outputs/*.txt",
     "training/**/*.log",
     "training/**/*.csv",
     "training/**/*.json",
