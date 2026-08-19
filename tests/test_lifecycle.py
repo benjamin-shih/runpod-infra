@@ -6,6 +6,7 @@ import subprocess
 
 import pytest
 
+from runpod_research import lifecycle
 from runpod_research.lifecycle import (
     ArtifactVerificationError,
     PodEndpoint,
@@ -19,6 +20,7 @@ from runpod_research.lifecycle import (
     remote_run_root_discovery_script,
     require_launch_manifest_entry,
     pull_artifacts,
+    pull_artifacts_atomically,
     verify_required_artifacts,
     write_checksums,
     write_status_cache,
@@ -216,6 +218,64 @@ def test_verify_required_artifacts_reports_missing(tmp_path: Path) -> None:
     (tmp_path / "status.json").write_text("{}")
     with pytest.raises(ArtifactVerificationError, match="lane_config.json"):
         verify_required_artifacts(tmp_path)
+
+
+def test_atomic_pull_preserves_existing_archive_after_interruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "archive" / "run"
+    destination.mkdir(parents=True)
+    (destination / "existing.txt").write_text("admitted archive\n")
+
+    def interrupted_pull(**kwargs):
+        staging = kwargs["destination"]
+        (staging / "outputs").mkdir(parents=True)
+        (staging / "outputs" / "large.npz").write_bytes(b"partial")
+        raise subprocess.CalledProcessError(255, ["ssh"])
+
+    monkeypatch.setattr(lifecycle, "pull_artifacts", interrupted_pull)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        pull_artifacts_atomically(
+            endpoint=PodEndpoint(host="example", port=22),
+            ssh_key=tmp_path / "id_ed25519",
+            remote_run_root="/workspace/run",
+            destination=destination,
+        )
+
+    assert (destination / "existing.txt").read_text() == "admitted archive\n"
+    assert not list(destination.parent.glob(".run.pull-*"))
+
+
+def test_atomic_pull_promotes_only_complete_required_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "archive" / "run"
+    destination.mkdir(parents=True)
+    (destination / "stale.txt").write_text("stale\n")
+
+    def complete_pull(**kwargs):
+        staging = kwargs["destination"]
+        write_json(staging / "status.json", {"status": "DONE"})
+        write_json(staging / "lane_config.json", {"job": "test"})
+        (staging / "metrics_all.csv").write_text("metric,value\nok,1\n")
+        (staging / "outputs").mkdir(parents=True)
+        (staging / "outputs" / "large.npz").write_bytes(b"complete")
+        return subprocess.CompletedProcess(args=["ssh"], returncode=0)
+
+    monkeypatch.setattr(lifecycle, "pull_artifacts", complete_pull)
+
+    pull_artifacts_atomically(
+        endpoint=PodEndpoint(host="example", port=22),
+        ssh_key=tmp_path / "id_ed25519",
+        remote_run_root="/workspace/run",
+        destination=destination,
+        verify_required=True,
+    )
+
+    assert not (destination / "stale.txt").exists()
+    assert (destination / "outputs" / "large.npz").read_bytes() == b"complete"
+    assert not list(destination.parent.glob(".run.pull-*"))
 
 
 def test_endpoint_from_pod_prefers_runtime_ssh_mapping() -> None:

@@ -19,11 +19,10 @@ from runpod_research.lifecycle import (
     decision_for_status,
     discover_remote_run_root,
     endpoint_from_pod,
-    pull_artifacts,
+    pull_artifacts_atomically,
     read_remote_status,
     require_launch_manifest_entry,
     utc_now,
-    verify_required_artifacts,
     volume_delete_blocker,
     write_checksums,
     write_json,
@@ -255,17 +254,16 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if decision.sync_artifacts:
-        pull_artifacts(
+        pull_artifacts_atomically(
             endpoint=artifact_endpoint,
             ssh_key=args.ssh_key,
             remote_run_root=remote_run_root,
             destination=local_archive,
             include_checkpoints=args.include_checkpoints,
+            verify_required=decision.lane_status == "DONE",
             dry_run=args.dry_run,
         )
         if not args.dry_run:
-            if decision.lane_status == "DONE":
-                verify_required_artifacts(local_archive)
             checksums = write_checksums(local_archive)
         else:
             checksums = {}

@@ -32,6 +32,10 @@ A terminal lane run root should contain:
 `status.json` should contain a top-level `status`. Terminal statuses recognized by the default reaper are `DONE` and `FAILED`. For `DONE`, the local archive must contain all required files above or reaping fails verification.
 
 The default reaper copies artifacts over SSH from a still-running pod. Stateless workers should keep the container alive after writing these files until reaping completes, unless the project implements its own persistent artifact backend.
+Terminal SSH pulls are staged in a fresh sibling directory and promoted only
+after the transfer and required-artifact checks succeed. An interrupted pull
+must leave the existing final archive untouched and must not authorize pod
+cleanup.
 
 The local `CHECKSUMS.sha256` manifest covers stable archived artifacts. It
 intentionally excludes itself and the mutable `archive-receipt.json`; the final

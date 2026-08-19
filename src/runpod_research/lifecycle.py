@@ -14,6 +14,7 @@ import json
 import shlex
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -617,6 +618,58 @@ def pull_artifacts(
         include_checkpoints=include_checkpoints,
         dry_run=dry_run,
     )
+
+
+def pull_artifacts_atomically(
+    *,
+    endpoint: PodEndpoint,
+    ssh_key: Path,
+    remote_run_root: str,
+    destination: Path,
+    include_checkpoints: bool = False,
+    verify_required: bool = False,
+    dry_run: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Pull into a fresh sibling directory before replacing the final archive."""
+
+    if dry_run:
+        return pull_artifacts(
+            endpoint=endpoint,
+            ssh_key=ssh_key,
+            remote_run_root=remote_run_root,
+            destination=destination,
+            include_checkpoints=include_checkpoints,
+            dry_run=True,
+        )
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.pull-",
+            dir=destination.parent,
+        )
+    )
+    try:
+        result = pull_artifacts(
+            endpoint=endpoint,
+            ssh_key=ssh_key,
+            remote_run_root=remote_run_root,
+            destination=staging,
+            include_checkpoints=include_checkpoints,
+            dry_run=False,
+        )
+        if verify_required:
+            verify_required_artifacts(staging)
+        if destination.exists() or destination.is_symlink():
+            if destination.is_symlink() or not destination.is_dir():
+                destination.unlink()
+            else:
+                shutil.rmtree(destination)
+        staging.replace(destination)
+        return result
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
 
 
 def verify_required_artifacts(root: Path) -> None:
