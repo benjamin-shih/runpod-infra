@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from runpod_research.dashboard import build_status, render_html
+from runpod_research import launcher
+from runpod_research.dashboard import build_status, render_html, summarize_pods
 
 
 def test_dashboard_redacts_and_escapes_status_cache(
@@ -37,3 +38,17 @@ def test_dashboard_redacts_and_escapes_status_cache(
     assert "secret-token" not in html
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
+def test_dashboard_uses_the_explicit_account_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RUNPOD_ACCOUNT_API_KEY", "account-key")
+    monkeypatch.setenv("RUNPOD_API_KEY", "pod-key")
+    calls = []
+
+    def api_request(method, path, *, api_key, api_base):
+        calls.append((method, path, api_key, api_base))
+        return []
+
+    monkeypatch.setattr(launcher, "api_request", api_request)
+    assert summarize_pods("https://api.example", allow_api=True) == ([], None)
+    assert calls == [("GET", "/pods", "account-key", "https://api.example")]

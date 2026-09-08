@@ -42,9 +42,30 @@ uvx --from git+https://github.com/benjamin-shih/runpod-infra.git rpr --help
 
 Keep project-specific sweep specs, worker images, run cards, and result archives in the downstream project, not in this infrastructure repo.
 
+Default new GPU workers to stateless compute. Keep the persistent archive on
+the controller or a separate sync/storage endpoint, so its volume placement
+does not constrain GPU availability. A stateless spec uses `volumeInGb: 0`, no
+`networkVolumeId`, and enough container-local disk for the model, inputs, caches,
+and results. Retain a volume and its placement when the task explicitly calls
+for that mounted storage.
+
 ## 3. Prepare local credentials without printing them
 
-For live API actions, the required variable is `RUNPOD_API_KEY`. The launcher also needs `RUNPOD_PUBLIC_KEY` for SSH access to workers, unless `~/.ssh/id_ed25519.pub` exists and can be loaded automatically. Optional archive sync pods that mount a network volume need `RUNPOD_NETWORK_VOLUME_ID` or an explicit spec value.
+For live API actions, provide `RUNPOD_ACCOUNT_API_KEY` or `RUNPOD_API_KEY`. The launcher also needs `RUNPOD_PUBLIC_KEY` for SSH access to workers, unless `~/.ssh/id_ed25519.pub` exists and can be loaded automatically. Optional archive sync pods that mount a network volume need `RUNPOD_NETWORK_VOLUME_ID` or an explicit spec value.
+
+Inside an existing Pod, `RUNPOD_API_KEY` can be an automatically supplied
+pod-scoped key. Set `RUNPOD_ACCOUNT_API_KEY` to your account key to override it
+explicitly; all API command entrypoints, including the dashboard, prefer this
+variable. It can also be supplied as `RUNPOD_ACCOUNT_API_KEY=<set-locally>` in
+the ignored env file below. Existing shell variables win over env-file values,
+so an env file that sets only `RUNPOD_API_KEY` will not replace an inherited
+pod-scoped key. Both key names are redacted from manifests and errors.
+
+The client identifies itself as `runpod-research/0.1.0`. A 403 `edge_rejection`
+with error code 1010 means the HTTP client was rejected before authentication;
+401 `authentication` and other 403 `authorization` failures instead require
+checking the account key and its permissions. Requests are not automatically
+retried, including resource-creation and deletion requests.
 
 Use either shell variables:
 
@@ -78,6 +99,14 @@ uv run rpr launch render --spec examples/specs/stateless-smoke.json
 ```
 
 Rendering writes redacted payload/manifests under `build/runpod-launch-manifests/` and does not call RunPod.
+
+For a project worker, arrange input staging before using the worker command.
+An established SSH bootstrap pattern is to launch an SSH-capable image/template,
+wait for SSH readiness, transfer the pinned source snapshot and required input
+directories, and then start the project worker. Reuse the project's existing
+bootstrap helper; `rpr launch` does not upload local files automatically. Model
+downloads and disposable caches belong on the worker's local disk. Include
+image startup and input transfer in the budget and startup grace period.
 
 ## 5. Create a queue
 
@@ -154,6 +183,11 @@ uv run rpr archive --env-file runpod-local-vars \
 ```
 
 If the controller launches a sync pod for you, that is billable and requires `--confirm-spend`. The packaged default sync spec is generic; copy `examples/specs/archive-sync-pod.json` into your downstream project before customizing GPU, volume, or image policy.
+
+The sync pod may mount a persistent network volume even when every compute
+worker is stateless. Its volume ID and region belong to the sync spec, not to
+the compute spec. Keep stateless workers alive until the SSH reaper has copied
+their terminal artifacts; archive promotion then operates on that local copy.
 
 ## 10. Worker contract checklist
 
