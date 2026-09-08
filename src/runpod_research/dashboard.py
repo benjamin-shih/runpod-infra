@@ -68,9 +68,10 @@ def iter_status_cache(status_cache: Path) -> list[dict[str, Any]]:
 def summarize_pods(api_base: str, *, allow_api: bool) -> tuple[list[dict[str, Any]], str | None]:
     if not allow_api:
         return [], None
-    api_key = os.environ.get("RUNPOD_API_KEY", "").strip()
-    if not api_key:
-        return [], "RUNPOD_API_KEY not set; API pod list skipped"
+    try:
+        api_key = runpod.api_key_from_env()
+    except runpod.ConfigError:
+        return [], "RUNPOD_ACCOUNT_API_KEY or RUNPOD_API_KEY not set; API pod list skipped"
     try:
         payload = runpod.api_request("GET", "/pods", api_key=api_key, api_base=api_base)
     except Exception as exc:  # noqa: BLE001

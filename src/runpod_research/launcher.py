@@ -25,12 +25,22 @@ from .schema import validate_spec_payload
 
 
 DEFAULT_API_BASE = "https://rest.runpod.io/v1"
+API_USER_AGENT = "runpod-research/0.1.0"
 ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 SECRET_KEY_PATTERN = re.compile(r"(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)", re.IGNORECASE)
 
 
 class ConfigError(ValueError):
     """Raised when the sweep spec or environment is not launchable."""
+
+
+class APIRequestError(RuntimeError):
+    """A redacted HTTP failure with transport rejection separate from auth."""
+
+    def __init__(self, message: str, *, status_code: int, category: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.category = category
 
 
 def utc_timestamp() -> str:
@@ -296,7 +306,13 @@ def api_request(
     payload: dict[str, Any] | None = None,
 ) -> Any:
     url = f"{api_base.rstrip('/')}/{path.lstrip('/')}"
-    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    # Identify this application instead of urllib's generic Python client.
+    # RunPod's edge rejects the latter with 403/1010 before checking the key.
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+        "User-Agent": API_USER_AGENT,
+    }
     data = None
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
@@ -307,9 +323,20 @@ def api_request(
             raw = response.read().decode("utf-8")
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"RunPod API {method} {url} failed: {exc.code} "
-            f"{_redact_error_body(body, extra_secret_values=(api_key,))}"
+        if exc.code == 403 and re.search(r"error\s+code\s*:\s*1010\b", body, re.IGNORECASE):
+            category = "edge_rejection"
+        elif exc.code == 401:
+            category = "authentication"
+        elif exc.code == 403:
+            category = "authorization"
+        else:
+            category = "http"
+        safe_url = redact_text(url, extra_secret_values=(api_key,))
+        raise APIRequestError(
+            f"RunPod API {method} {safe_url} failed: {exc.code} ({category}) "
+            f"{_redact_error_body(body, extra_secret_values=(api_key,))}",
+            status_code=exc.code,
+            category=category,
         ) from exc
     except URLError as exc:
         reason = redact_text(str(exc.reason), extra_secret_values=(api_key,))
@@ -318,9 +345,13 @@ def api_request(
 
 
 def api_key_from_env() -> str:
-    api_key = os.environ.get("RUNPOD_API_KEY", "").strip()
+    # A worker can inherit a pod-scoped RUNPOD_API_KEY. An explicitly supplied
+    # account key should win without assuming any project-specific secret path.
+    api_key = os.environ.get("RUNPOD_ACCOUNT_API_KEY", "").strip()
     if not api_key:
-        raise ConfigError("RUNPOD_API_KEY is required for API actions")
+        api_key = os.environ.get("RUNPOD_API_KEY", "").strip()
+    if not api_key:
+        raise ConfigError("RUNPOD_ACCOUNT_API_KEY or RUNPOD_API_KEY is required for API actions")
     return api_key
 
 

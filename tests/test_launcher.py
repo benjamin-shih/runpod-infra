@@ -4,7 +4,7 @@ import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -184,6 +184,104 @@ def test_api_request_redacts_http_error_bodies(
     message = str(exc_info.value)
     assert "direct-secret" not in message
     assert "<redacted>" in message
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "DELETE"])
+def test_api_request_identifies_the_application_for_every_http_method(
+    monkeypatch: pytest.MonkeyPatch, method: str
+) -> None:
+    requests = []
+
+    def fake_urlopen(request, *, timeout):
+        requests.append(request)
+        assert timeout == 60
+        return io.BytesIO(b'{"ok":true}')
+
+    monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
+    payload = {"name": "example"} if method == "POST" else None
+    result = launcher.api_request(
+        method, "/pods", api_key="example-key", api_base="https://api.example", payload=payload
+    )
+    assert result == {"ok": True}
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.get_method() == method
+    assert request.get_header("User-agent") == launcher.API_USER_AGENT
+    assert request.get_header("Authorization") == "Bearer example-key"
+    assert request.get_header("Accept") == "application/json"
+    if payload is not None:
+        assert request.get_header("Content-type") == "application/json"
+        assert json.loads(request.data) == payload
+    else:
+        assert request.data is None
+
+
+@pytest.mark.parametrize(
+    ("code", "body", "category"),
+    [
+        (401, b'{"message":"Unauthorized"}', "authentication"),
+        (403, b"Forbidden", "authorization"),
+        (403, b'{"error":"error code: 1010"}', "edge_rejection"),
+        (503, b"Service unavailable", "http"),
+    ],
+)
+def test_api_http_failures_preserve_category_and_never_retry_mutations(
+    monkeypatch: pytest.MonkeyPatch, code: int, body: bytes, category: str
+) -> None:
+    calls = []
+
+    def fake_urlopen(request, *, timeout):
+        calls.append(request)
+        raise HTTPError(request.full_url, code, "Failure", hdrs={}, fp=io.BytesIO(body))
+
+    monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
+    with pytest.raises(launcher.APIRequestError) as caught:
+        launcher.api_request(
+            "POST", "/pods", api_key="example-key", api_base="https://api.example", payload={}
+        )
+    assert caught.value.status_code == code
+    assert caught.value.category == category
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_api_connection_failures_never_retry_mutations(
+    monkeypatch: pytest.MonkeyPatch, method: str
+) -> None:
+    calls = []
+
+    def fake_urlopen(request, *, timeout):
+        calls.append(request)
+        raise URLError("connection reset: example-secret")
+
+    monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError) as caught:
+        launcher.api_request(
+            method, "/pods", api_key="example-secret", api_base="https://api.example"
+        )
+    assert "example-secret" not in str(caught.value)
+    assert "<redacted>" in str(caught.value)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("account_key", "inherited_key", "expected"),
+    [("account-key", "pod-key", "account-key"), (" ", "pod-key", "pod-key"),
+     ("account-key", "", "account-key")],
+)
+def test_explicit_account_key_takes_precedence(
+    monkeypatch: pytest.MonkeyPatch, account_key: str, inherited_key: str, expected: str
+) -> None:
+    monkeypatch.setenv("RUNPOD_ACCOUNT_API_KEY", account_key)
+    monkeypatch.setenv("RUNPOD_API_KEY", inherited_key)
+    assert launcher.api_key_from_env() == expected
+
+
+def test_missing_api_keys_fail_without_fallback_guessing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("RUNPOD_ACCOUNT_API_KEY", raising=False)
+    monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+    with pytest.raises(launcher.ConfigError, match="RUNPOD_ACCOUNT_API_KEY or RUNPOD_API_KEY"):
+        launcher.api_key_from_env()
 
 
 def test_redact_for_manifest_removes_nested_secrets() -> None:

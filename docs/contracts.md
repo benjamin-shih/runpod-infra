@@ -12,6 +12,32 @@ Specs are JSON objects with `schema_version: 1`, `name`, `remote_artifact_root`,
 - Only local placeholders named `${RUNPOD_*}` are expanded before launch. Other placeholders remain available for the worker shell.
 - Offline render may report unresolved `${RUNPOD_*}` placeholders for inspection. Live launch and confirmed controller launch fail until all `${RUNPOD_*}` placeholders in the RunPod payload resolve locally.
 
+### Compute storage and persistent archives
+
+The recommended compute configuration is explicit `storage_mode: stateless`,
+`volumeInGb: 0`, sufficient `containerDiskInGb`, and no `networkVolumeId`.
+Persistent inputs and result archives can remain on a separate storage endpoint.
+Copy required inputs to the worker's local disk before starting its command;
+the generic launcher does not transfer downstream source, datasets, or adapters.
+Changing the storage label alone does not stage files or make a mounted-volume
+worker command self-contained.
+
+`storage_mode` describes lifecycle intent and is removed from the API payload;
+the rendered RunPod storage fields determine the actual attachment. Preserve
+explicit `temp-volume` or `master-volume` requests and their required placement.
+For stateless compute, omit placement restrictions that existed only to mount
+the archive volume. Merely defining `RUNPOD_NETWORK_VOLUME_ID` locally does not
+request a mount: the worker spec must explicitly reference a volume.
+
+The three storage roles are:
+
+- `stateless`: disposable pod-local inputs, caches, and outputs, copied out
+  before worker cleanup.
+- `temp-volume`: a deliberately allocated temporary volume, with ownership and
+  deletion handled by the lane's explicit cleanup policy.
+- `master-volume`: an explicitly mounted persistent volume, commonly used by
+  an archive/sync endpoint; it is not a prerequisite for GPU workers.
+
 ## Worker environment
 
 The launcher injects:
@@ -58,3 +84,9 @@ The queue is a single JSON file with one writer/controller. Controller ticks tak
 ## Archive promotion contract
 
 Archive promotion copies selected local archive paths to a configured remote root and subdirectory through an SSH-capable sync pod. Remote subdirectories must be relative, must not contain `..`, and must use safe path components made of letters, numbers, `.`, `_`, `-`, `+`, or `=`.
+
+The compute worker does not need to mount the sync pod's archive volume or run
+in its region. The normal flow is worker-local artifacts, verified SSH reap to
+the controller archive, then optional promotion to persistent storage. Reaping
+and promotion are separate operations; preserve the local archive until the
+intended persistent copy has completed.

@@ -7,7 +7,26 @@ This is the required first-read for future agents using or modifying `runpod-res
 - Treat this repo as generic infrastructure. Do not add downstream project defaults to core modules.
 - Do not run live RunPod launches, pod cleanup, volume deletion, or archive uploads unless the user explicitly approves that live action.
 - Never print credential values. It is fine to reference environment variable names.
+- For an account-level API action inside a Pod, explicitly set
+  `RUNPOD_ACCOUNT_API_KEY` when `RUNPOD_API_KEY` is pod-scoped. The account alias
+  takes precedence, including when loaded from an ignored env file; do not
+  print either key or assume the inherited key has account permissions.
 - Do not use an agent session as a continuous monitor. Use controller loops, daemon logs, queues, status caches, and sparse checkpoints.
+
+## Compute and archive storage
+
+Use stateless, pod-local storage for new compute workers unless the task
+explicitly requires a mounted volume. Keep persistent archive storage separate:
+reap the worker to the controller's archive first, then promote that archive
+through a sync pod when needed. An existing archive volume or a locally set
+`RUNPOD_NETWORK_VOLUME_ID` is not a reason to attach that volume to every GPU.
+
+A stateless worker needs its source, datasets, and adapters staged before its
+command starts, or an image that already contains them. Reuse the downstream
+project's SSH/bootstrap transfer flow. Size the local disk for inputs, caches,
+and outputs, and include transfer time in the worker's launch-to-cleanup budget.
+Keep explicitly requested volume and placement settings intact; for a stateless
+job, do not inherit an archive volume's region constraint.
 
 ## Standard workflow
 
